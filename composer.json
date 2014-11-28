@@ -15,7 +15,7 @@
 	},
 	"autoload": {
 		"psr-4": {
-			"ADT\\ErrorLogger": "src/"
+			"ADT\\": "src/"
 		}
 	}
 }
