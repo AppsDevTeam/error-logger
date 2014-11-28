@@ -1,0 +1,21 @@
+{
+	"name": "adt/errorLogger",
+	"type": "library",
+	"description": "",
+	"keywords": ["nette", "error", "logger", "errorLogger"],
+	"license": ["BSD-3-Clause", "GPL-2.0", "GPL-3.0"],
+	"authors": [
+		{
+			"name": "ADT",
+			"homepage": "http://appsdevteam.com"
+		}
+	],
+	"require": {
+		"tracy/tracy": ">=2.2.0"
+	},
+	"autoload": {
+		"psr-4": {
+			"ADT\\ErrorLogger\\": "src/"
+		}
+	}
+}
