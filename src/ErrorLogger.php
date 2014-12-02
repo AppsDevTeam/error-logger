@@ -11,6 +11,10 @@ class ErrorLogger extends \Tracy\Logger {
 	 * @param \SystemContainer|DI\Container $container
 	 */
 	public static function install($container) {
+		if (! self::$productionMode) {
+			return;
+		}
+		
 		$debEmail = \Tracy\Debugger::$email;
 		$debLogDir = \Tracy\Debugger::$logDirectory;
 		\Tracy\Debugger::setLogger(new \ADT\ErrorLogger()); //nastavime vlastni logger
