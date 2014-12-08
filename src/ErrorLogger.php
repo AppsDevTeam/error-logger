@@ -72,7 +72,7 @@ class ErrorLogger extends \Tracy\Logger {
 
 			// pridame doplnujici info, referer,browser,...
 			$stringMessage .= "\n\n".
-			  'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" .
+			  (isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
 			  'SERVER:' . var_export($_SERVER, TRUE) . "\n\n".
 				'GET:' . var_export($_GET, TRUE) . "\n\n".
 				'POST:' . var_export($_POST, TRUE) . "\n\n".
