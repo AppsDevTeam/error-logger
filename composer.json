@@ -11,7 +11,7 @@
 		}
 	],
 	"require": {
-		"tracy/tracy": ">=2.2.0"
+		"tracy/tracy": ">=2.3.0"
 	},
 	"autoload": {
 		"psr-4": {
