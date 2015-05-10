@@ -60,7 +60,7 @@ class ErrorLogger extends \Tracy\Logger {
 					$stringMessage = $message;
 				}
 
-				$messageHash = md5($message[1]);
+				$messageHash = md5(preg_replace('~(Resource id #)\d+~', '$1', $message));
 
 				$dbt = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
 				$dbtSting = "";
