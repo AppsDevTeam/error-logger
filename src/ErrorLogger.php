@@ -66,7 +66,12 @@ class ErrorLogger extends \Tracy\Logger {
 				$dbtSting = "";
 				if(count($dbt) > 3){ //pokud jsou 3 tak jde pouze o exception a je ulozena nette chybova stranka
 					for($i=0; $i < count($dbt); $i++){
-						@$dbtSting .= "#".($i)." ".$dbt[$i]['file'] . '(' . $dbt[$i]['line'] . '): ' . (isset($dbt[$i]['class']) ? $dbt[$i]['class'] . '::' : '') . $dbt[$i]['function'] . '()' . "\n";
+						$dbdtData = $dbt[$i] + [
+							'file' => '_unknown_',
+							'line' => '_unknown_',
+							'function' => '_unknown_',
+						];
+						$dbtSting = "#".($i)." ".$dbdtData['file'] . '(' . $dbdtData['line'] . '): ' . (isset($dbdtData['class']) ? $dbdtData['class'] . '::' : '') . $dbdtData['function'] . '()' . "\n";
 					}
 
 					$stringMessage .= "\n\n". $dbtSting;
@@ -78,7 +83,7 @@ class ErrorLogger extends \Tracy\Logger {
 					'SERVER:' . var_export($_SERVER, TRUE) . "\n\n".
 					'GET:' . var_export($_GET, TRUE) . "\n\n".
 					'POST:' . var_export($_POST, TRUE) . "\n\n".
-					'securityUser:' . var_export($this->securityUser->identity, TRUE) . "\n\n";
+					'securityUser:' . print_r($this->securityUser->identity, TRUE) . "\n\n";
 
 				// zjistime zda dana chyba uz neni odeslana
 				$errors = explode(PHP_EOL, @file_get_contents($this->directory . '/email-sent'));
