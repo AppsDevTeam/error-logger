@@ -16,7 +16,9 @@ class ErrorLogger extends \Tracy\Logger {
 		}
 
 		\Tracy\Debugger::setLogger(new static(\Tracy\Debugger::$logDirectory, \Tracy\Debugger::$email, \Tracy\Debugger::getBlueScreen()));
-		\Tracy\Debugger::getLogger()->injectSecurityUser($container->getByType('\Nette\Security\User'));
+		try {
+			\Tracy\Debugger::getLogger()->injectSecurityUser($container->getByType('\Nette\Security\User'));
+		} catch (\Exception $e) {}
 		\Tracy\Debugger::$maxLen = FALSE;
 	}
 
@@ -83,7 +85,7 @@ class ErrorLogger extends \Tracy\Logger {
 					'SERVER:' . var_export($_SERVER, TRUE) . "\n\n".
 					'GET:' . var_export($_GET, TRUE) . "\n\n".
 					'POST:' . var_export($_POST, TRUE) . "\n\n".
-					'securityUser:' . print_r($this->securityUser->identity, TRUE) . "\n\n";
+					($this->securityUser ? 'securityUser:' . print_r($this->securityUser->identity, TRUE) . "\n\n" : '');
 
 				// zjistime zda dana chyba uz neni odeslana
 				$errors = explode(PHP_EOL, @file_get_contents($this->directory . '/email-sent'));
