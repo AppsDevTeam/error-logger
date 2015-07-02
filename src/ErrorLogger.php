@@ -82,10 +82,10 @@ class ErrorLogger extends \Tracy\Logger {
 				// pridame doplnujici info, referer,browser,...
 				$stringMessage .= "\n\n".
 					(isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
-					'SERVER:' . var_export($_SERVER, TRUE) . "\n\n".
-					'GET:' . var_export($_GET, TRUE) . "\n\n".
-					'POST:' . var_export($_POST, TRUE) . "\n\n".
-					($this->securityUser ? 'securityUser:' . print_r($this->securityUser->identity, TRUE) . "\n\n" : '');
+					'SERVER:' . \Tracy\Dumper::toText($_SERVER) . "\n\n".
+					'GET:' . \Tracy\Dumper::toText($_GET) . "\n\n".
+					'POST:' . \Tracy\Dumper::toText($_POST) . "\n\n".
+					($this->securityUser ? 'securityUser:' . \Tracy\Dumper::toText($this->securityUser->identity, [ \Tracy\Dumper::DEPTH => 1 ]) . "\n\n" : '');
 
 				// zjistime zda dana chyba uz neni odeslana
 				$errors = explode(PHP_EOL, @file_get_contents($this->directory . '/email-sent'));
