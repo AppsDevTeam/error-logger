@@ -1,6 +1,8 @@
 ErrorLogger
 ===========
 
+Sends more info about the error than [Tracy\Logger](https://github.com/nette/tracy). Moreover, it can send multiple errors not only the first.
+
 Installation
 ------------
 
