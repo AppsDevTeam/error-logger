@@ -1,5 +1,5 @@
 {
-	"name": "adt/errorLogger",
+	"name": "adt/error-logger",
 	"type": "library",
 	"description": "",
 	"keywords": ["nette", "error", "logger", "errorLogger"],
