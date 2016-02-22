@@ -2,29 +2,63 @@
 
 namespace ADT;
 
+use Tracy\Debugger;
+use Tracy\Dumper;
+
+
 class ErrorLogger extends \Tracy\Logger {
 
+	/** @var \Nette\Security\User */
 	protected $securityUser;
 
 	/**
-	 * Statická instalace v bootrstrap.php
-	 * @param \SystemContainer|DI\Container $container
+	 * Cesta k souboru s deníkem chyb
+	 * @var string
 	 */
-	public static function install($container) {
-		if (! \Tracy\Debugger::$productionMode) {
+	protected $logFile;
+
+	/**
+	 * Maximální počet odeslaných emailů denně
+	 * @var int
+	 */
+	protected $maxEmailsPerDay;
+
+	/**
+	 * Statická instalace v bootstrap.php
+	 * @param \SystemContainer|\Nette\DI\Container $container
+	 */
+	public static function install($container, $maxEmailsPerDay = NULL) {
+		if (!Debugger::$productionMode) {
 			return;
 		}
 
-		\Tracy\Debugger::setLogger(new static(\Tracy\Debugger::$logDirectory, \Tracy\Debugger::$email, \Tracy\Debugger::getBlueScreen()));
+		$logger = new static(
+			Debugger::$logDirectory, Debugger::$email, Debugger::getBlueScreen()
+		);
+
+		// nejdřív zkusíme použít argument, pokud je prázdný, tak config,
+		// a pokud ani to nevyjde, tak defaultní hodnotu
+		$logger->maxEmailsPerDay = $maxEmailsPerDay ?: (
+			isset($container->parameters['logger']['maxEmailsPerDay'])
+				? $container->parameters['logger']['maxEmailsPerDay']
+				: 10
+		);
+
+		Debugger::setLogger($logger);
+		Debugger::$maxLen = FALSE;
+
 		try {
-			\Tracy\Debugger::getLogger()->injectSecurityUser($container->getByType('\Nette\Security\User'));
+			/** @var \Nette\Security\User $securityUser */
+			$securityUser = $container->getByType('\Nette\Security\User');
+			$logger->injectSecurityUser($securityUser);
 		} catch (\Exception $e) {}
-		\Tracy\Debugger::$maxLen = FALSE;
 	}
 
 	public function __construct($directory, $email = NULL, \Tracy\BlueScreen $blueScreen = NULL)
 	{
 		parent::__construct($directory, $email, $blueScreen);
+
+		$this->logFile = $this->directory . '/email-sent';
 	}
 
 	public function injectSecurityUser(\Nette\Security\User $securityUser) {
@@ -56,44 +90,71 @@ class ErrorLogger extends \Tracy\Logger {
 		if (in_array($priority, array(self::ERROR, self::EXCEPTION, self::CRITICAL), TRUE)) {
 
 			if ($this->email && $this->mailer) {
-				if (is_array($message)) {
-					$stringMessage = implode(' ', $message);
-				} else {
-					$stringMessage = $message;
+				$messageHash = md5(preg_replace('~(Resource id #)\d+~', '$1', $message));
+				$logContents = @file_get_contents($this->logFile, LOCK_SH);
+				$today = (new \DateTime)->format('Y-m-d');
+
+				$log = json_decode($logContents, TRUE);
+				if (json_last_error() && !empty($logContents)) {
+					// pokud se nepovede parsování JSONu, zřejmě je log ještě ve starém formátu
+					$log = [
+						'hashes' => explode(PHP_EOL, $logContents),
+					];
 				}
 
-				$messageHash = md5(preg_replace('~(Resource id #)\d+~', '$1', $message));
-
-				$dbt = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
-				$dbtSting = "";
-				if(count($dbt) > 3){ //pokud jsou 3 tak jde pouze o exception a je ulozena nette chybova stranka
-					for($i=0; $i < count($dbt); $i++){
-						$dbdtData = $dbt[$i] + [
-							'file' => '_unknown_',
-							'line' => '_unknown_',
-							'function' => '_unknown_',
-						];
-						$dbtSting = "#".($i)." ".$dbdtData['file'] . '(' . $dbdtData['line'] . '): ' . (isset($dbdtData['class']) ? $dbdtData['class'] . '::' : '') . $dbdtData['function'] . '()' . "\n";
+				if (
+					// tento hash jsme ještě neposlali
+					!in_array($messageHash, $log['hashes'], TRUE)
+					&& (
+						// dnes je to první email
+						empty($log['counters'][$today])
+						||
+						// ještě se vejdeme do limitu
+						$log['counters'][$today] < $this->maxEmailsPerDay
+					)
+				) {
+					if (is_array($message)) {
+						$stringMessage = implode(' ', $message);
+					} else {
+						$stringMessage = $message;
 					}
 
-					$stringMessage .= "\n\n". $dbtSting;
-				}
+					$backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+					if (count($backtrace) > 3) { //pokud jsou 3 tak jde pouze o exception a je ulozena nette chybova stranka
+						$backtraceString = "";
 
-				// pridame doplnujici info, referer,browser,...
-				$stringMessage .= "\n\n".
-					(isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
-					'SERVER:' . \Tracy\Dumper::toText($_SERVER) . "\n\n".
-					'GET:' . \Tracy\Dumper::toText($_GET) . "\n\n".
-					'POST:' . \Tracy\Dumper::toText($_POST) . "\n\n".
-					($this->securityUser ? 'securityUser:' . \Tracy\Dumper::toText($this->securityUser->identity, [ \Tracy\Dumper::DEPTH => 1 ]) . "\n\n" : '');
+						for ($i = 0; $i < count($backtrace); $i++) {
+							$backtraceData = $backtrace[$i] + [
+									'file' => '_unknown_',
+									'line' => '_unknown_',
+									'function' => '_unknown_',
+								];
 
-				// zjistime zda dana chyba uz neni odeslana
-				$errors = explode(PHP_EOL, @file_get_contents($this->directory . '/email-sent'));
-				if (count($errors) == 0 || !in_array($messageHash, $errors)) { // je li prazdny nebo neni v poly
-					// pridame a odeslem
-					@file_put_contents($this->directory . '/email-sent', $messageHash . PHP_EOL, FILE_APPEND);
+							$backtraceString = "#$i {$backtraceData['file']}({$backtraceData['line']}): "
+								. (isset($backtraceData['class']) ? $backtraceData['class'] . '::' : '')
+								. "{$backtraceData['function']}()\n";
+						}
 
-					call_user_func($this->mailer, $stringMessage, implode(', ', (array) $this->email));
+						$stringMessage .= "\n\n" . $backtraceString;
+					}
+
+					// přidáme doplnující info - referer, browser...
+					$stringMessage .= "\n\n" .
+						(isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
+						'SERVER:' . Dumper::toText($_SERVER) . "\n\n" .
+						'GET:' . Dumper::toText($_GET) . "\n\n" .
+						'POST:' . Dumper::toText($_POST) . "\n\n" .
+						($this->securityUser ? 'securityUser:' . Dumper::toText($this->securityUser->identity, [ Dumper::DEPTH => 1 ]) . "\n\n" : '');
+
+					// odešleme chybu emailem
+					call_user_func($this->mailer, $stringMessage, implode(', ', (array)$this->email));
+
+					// a zalogujeme
+					$log['hashes'][] = $messageHash;
+					$log['counters'][$today]++;
+
+					$logContents = json_encode($log);
+					@file_put_contents($this->logFile, $logContents, LOCK_EX);
 				}
 			}
 		}
