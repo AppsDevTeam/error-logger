@@ -93,26 +93,60 @@ class ErrorLogger extends \Tracy\Logger {
 				$messageHash = md5(preg_replace('~(Resource id #)\d+~', '$1', $message));
 				$logContents = @file_get_contents($this->logFile, LOCK_SH);
 				$today = (new \DateTime)->format('Y-m-d');
+				$saveLog = FALSE;
 
 				$log = json_decode($logContents, TRUE);
 				if (json_last_error() && !empty($logContents)) {
 					// pokud se nepovede parsování JSONu, zřejmě je log ještě ve starém formátu
 					$log = [
 						'hashes' => explode(PHP_EOL, $logContents),
+						'counter' => 0,
+						'date' => $today,
 					];
+					$saveLog = TRUE;
+				} else if (empty($logContents)) {
+					// prázdný nebo neexistující soubor
+					$log = [
+						'hashes' => [ ],
+						'counter' => 0,
+						'date' => $today,
+					];
+					$saveLog = TRUE;
 				}
 
-				if (
+				$sendEmail = (
 					// tento hash jsme ještě neposlali
 					!in_array($messageHash, $log['hashes'], TRUE)
 					&& (
 						// dnes je to první email
-						empty($log['counters'][$today])
+						$log['date'] !== $today
 						||
 						// ještě se vejdeme do limitu
-						$log['counters'][$today] < $this->maxEmailsPerDay
+						$log['counter'] < $this->maxEmailsPerDay
 					)
-				) {
+				);
+
+				if ($log['date'] !== $today) {
+					// změnilo se datum, resetujeme počítadlo a datum aktualizujeme
+					$log['date'] = $today;
+					$log['counter'] = 0;
+					$saveLog = TRUE;
+				}
+
+				if ($sendEmail) {
+					// zalogujeme hash a inkrementujeme počítadlo
+					$log['hashes'][] = $messageHash;
+					$log['counter']++;
+					$saveLog = TRUE;
+				}
+
+				if ($saveLog) {
+					$logContents = json_encode($log);
+					@file_put_contents($this->logFile, $logContents, LOCK_EX);
+				}
+
+				if ($sendEmail) {
+					// sestavíme zprávu
 					if (is_array($message)) {
 						$stringMessage = implode(' ', $message);
 					} else {
@@ -148,13 +182,6 @@ class ErrorLogger extends \Tracy\Logger {
 
 					// odešleme chybu emailem
 					call_user_func($this->mailer, $stringMessage, implode(', ', (array)$this->email));
-
-					// a zalogujeme
-					$log['hashes'][] = $messageHash;
-					$log['counters'][$today]++;
-
-					$logContents = json_encode($log);
-					@file_put_contents($this->logFile, $logContents, LOCK_EX);
 				}
 			}
 		}
