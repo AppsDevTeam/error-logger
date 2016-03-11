@@ -7,7 +7,7 @@ Installation
 ------------
 
 Add to your composer.json
-```
+````
 "repositories": [
   {
     "type": "git",
@@ -23,4 +23,23 @@ composer require adt/errorLogger
 Place this to your bootstrap.php:
 ````
 \ADT\ErrorLogger::install($container);
+````
+
+Configuration
+-------------
+
+To override maximum number of sent emails per day (default is 10), add it as a second argument to `install` method:
+````
+\ADT\ErrorLogger::install($container, 25);
+````
+
+or as a parameter to your config.neon:
+````
+parameters:
+    ...
+
+    logger:
+        maxEmailsPerDay: 25
+
+    ...
 ````
