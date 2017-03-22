@@ -176,8 +176,8 @@ class ErrorLogger extends \Tracy\Logger {
 					$stringMessage .= "\n\n" .
 						(isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
 						'SERVER:' . Dumper::toText($_SERVER) . "\n\n" .
-						'GET:' . Dumper::toText($_GET) . "\n\n" .
-						'POST:' . Dumper::toText($_POST) . "\n\n" .
+						'GET:' . Dumper::toText($_GET, [ Dumper::DEPTH => 10 ]) . "\n\n" .
+						'POST:' . Dumper::toText($_POST, [ Dumper::DEPTH => 10 ]) . "\n\n" .
 						($this->securityUser ? 'securityUser:' . Dumper::toText($this->securityUser->identity, [ Dumper::DEPTH => 1 ]) . "\n\n" : '');
 
 					// odešleme chybu emailem
