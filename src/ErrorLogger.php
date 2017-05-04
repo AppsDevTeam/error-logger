@@ -2,6 +2,7 @@
 
 namespace ADT;
 
+use Nette\Utils\Json;
 use Tracy\Debugger;
 use Tracy\Dumper;
 
@@ -179,6 +180,14 @@ class ErrorLogger extends \Tracy\Logger {
 						'GET:' . Dumper::toText($_GET, [ Dumper::DEPTH => 10 ]) . "\n\n" .
 						'POST:' . Dumper::toText($_POST, [ Dumper::DEPTH => 10 ]) . "\n\n" .
 						($this->securityUser ? 'securityUser:' . Dumper::toText($this->securityUser->identity, [ Dumper::DEPTH => 1 ]) . "\n\n" : '');
+
+					$gitInfo = Json::decode(file_get_contents(APP_DIR . '/git.json'));
+
+					$stringMessage .= "\n\n";
+
+					foreach ($gitInfo as $gitElementKey => $gitElementValue) {
+						$stringMessage .= $gitElementKey . ": " . $gitElementValue."\n";
+					}
 
 					// odešleme chybu emailem
 					call_user_func($this->mailer, $stringMessage, implode(', ', (array)$this->email));
