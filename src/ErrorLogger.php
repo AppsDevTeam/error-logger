@@ -24,6 +24,11 @@ class ErrorLogger extends \Tracy\Logger {
 	protected $maxEmailsPerDay;
 
 	/**
+	 * @var \Nette\DI\Container
+	 */
+	protected $container;
+
+	/**
 	 * Statická instalace v bootstrap.php
 	 * @param \SystemContainer|\Nette\DI\Container $container
 	 */
@@ -33,7 +38,7 @@ class ErrorLogger extends \Tracy\Logger {
 		}
 
 		$logger = new static(
-			Debugger::$logDirectory, Debugger::$email, Debugger::getBlueScreen()
+			$container, Debugger::$logDirectory, Debugger::$email, Debugger::getBlueScreen()
 		);
 
 		// nejdřív zkusíme použít argument, pokud je prázdný, tak config,
@@ -54,10 +59,11 @@ class ErrorLogger extends \Tracy\Logger {
 		} catch (\Exception $e) {}
 	}
 
-	public function __construct($directory, $email = NULL, \Tracy\BlueScreen $blueScreen = NULL)
+	public function __construct($container, $directory, $email = NULL, \Tracy\BlueScreen $blueScreen = NULL)
 	{
 		parent::__construct($directory, $email, $blueScreen);
 
+		$this->container = $container;
 		$this->logFile = $this->directory . '/email-sent';
 	}
 
@@ -179,6 +185,16 @@ class ErrorLogger extends \Tracy\Logger {
 						'GET:' . Dumper::toText($_GET, [ Dumper::DEPTH => 10 ]) . "\n\n" .
 						'POST:' . Dumper::toText($_POST, [ Dumper::DEPTH => 10 ]) . "\n\n" .
 						($this->securityUser ? 'securityUser:' . Dumper::toText($this->securityUser->identity, [ Dumper::DEPTH => 1 ]) . "\n\n" : '');
+
+
+					if (($git = $this->container->getByType('\ADT\TracyGit\Git', FALSE)) !== NULL) {
+
+						$stringMessage .= "\n\n";
+
+						foreach ($git->getInfo() as $key => $value) {
+							$stringMessage .= $key . ": " . $value . "\n";
+						}
+					}
 
 					// odešleme chybu emailem
 					call_user_func($this->mailer, $stringMessage, implode(', ', (array)$this->email));

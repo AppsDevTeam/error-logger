@@ -13,6 +13,9 @@
 	"require": {
 		"tracy/tracy": ">=2.3.0"
 	},
+	"suggest": {
+		"adt/tracy-git": "Useful for displaying information about currently deployed application version."
+	},
 	"autoload": {
 		"psr-4": {
 			"ADT\\": "src/"
