@@ -57,6 +57,8 @@ class ErrorLogger extends \Tracy\Logger {
 			$securityUser = $container->getByType('\Nette\Security\User');
 			$logger->injectSecurityUser($securityUser);
 		} catch (\Exception $e) {}
+
+		return $logger;
 	}
 
 	public function __construct($container, $directory, $email = NULL, \Tracy\BlueScreen $blueScreen = NULL)
