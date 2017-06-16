@@ -189,7 +189,7 @@ class ErrorLogger extends \Tracy\Logger {
 						($this->securityUser ? 'securityUser:' . Dumper::toText($this->securityUser->identity, [ Dumper::DEPTH => 1 ]) . "\n\n" : '');
 
 
-					if (($git = $this->container->getByType('\ADT\TracyGit\Git', FALSE)) !== NULL) {
+					if (($git = $this->container->getByType('\ADT\TracyGit\Git', FALSE)) !== NULL && ($gitInfo = $git->getInfo())) {
 
 						$stringMessage .= "\n\n";
 
