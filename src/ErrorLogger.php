@@ -199,11 +199,64 @@ class ErrorLogger extends \Tracy\Logger {
 					}
 
 					// odešleme chybu emailem
-					call_user_func($this->mailer, $stringMessage, implode(', ', (array)$this->email));
+					call_user_func($this->mailer, $stringMessage, implode(', ', (array)$this->email), $exceptionFile);
 				}
 			}
 		}
 
 		return $exceptionFile;
 	}
+
+
+	/**
+	 * Default mailer.
+	 * @param  string|\Exception|\Throwable
+	 * @param  string
+	 * @return void
+	 * @internal
+	 */
+	public function defaultMailer($message, $email, $attachment)
+	{
+		$host = preg_replace('#[^\w.-]+#', '', isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : php_uname('n'));
+
+		$separator = md5(time());
+		$eol = "\n";
+
+		$filename = basename($attachment);
+		$content = file_get_contents($attachment);
+    $content = chunk_split(base64_encode($content));
+
+		$parts = str_replace(
+			["\r\n", "\n"],
+			["\n", PHP_EOL],
+			[
+				'headers' => implode("\n", [
+					'From: ' . ($this->fromEmail ?: "noreply@$host"),
+					'X-Mailer: Tracy',
+					'MIME-Version: 1.0',
+					'Content-Type: multipart/mixed; boundary="' . $separator . '"',
+					'Content-Transfer-Encoding: 7bit',
+				]) . "\n",
+				'subject' => "PHP: An error occurred on the server $host",
+				'body' =>
+					"--" . $separator . $eol.
+
+					// Text email
+					"Content-Type: text/plain; charset=\"UTF-8\"" . $eol.
+					"Content-Transfer-Encoding: 8bit" . $eol.$eol.
+					$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource() . $eol.
+					"--" . $separator . $eol.
+
+					// Attachment
+					"Content-Type: application/octet-stream; name=\"" . $filename . "\"" . $eol.
+					"Content-Transfer-Encoding: base64" . $eol.
+					"Content-Disposition: attachment" . $eol.$eol.
+					$content . $eol.
+					"--" . $separator . "--",
+			]
+		);
+
+		mail($email, $parts['subject'], $parts['body'], $parts['headers']);
+	}
+
 }
