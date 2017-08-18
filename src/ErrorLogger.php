@@ -4,6 +4,7 @@ namespace ADT;
 
 use Tracy\Debugger;
 use Tracy\Dumper;
+use Tracy\Helpers;
 
 
 class ErrorLogger extends \Tracy\Logger {
@@ -217,6 +218,10 @@ class ErrorLogger extends \Tracy\Logger {
 	 */
 	public function defaultMailer($message, $email, $attachment = NULL)
 	{
+    if ($attachment === NULL) {
+      return parent::defaultMailer($message, $email);
+    }
+
 		$host = preg_replace('#[^\w.-]+#', '', isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : php_uname('n'));
 
 		$separator = md5(time());
@@ -256,7 +261,7 @@ class ErrorLogger extends \Tracy\Logger {
 			]
 		);
 
-		mail($email, $parts['subject'], $parts['body'], $parts['headers']);
+    mail($email, $parts['subject'], $parts['body'], $parts['headers']);
 	}
 
 }
