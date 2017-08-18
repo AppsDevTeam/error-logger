@@ -215,7 +215,7 @@ class ErrorLogger extends \Tracy\Logger {
 	 * @return void
 	 * @internal
 	 */
-	public function defaultMailer($message, $email, $attachment)
+	public function defaultMailer($message, $email, $attachment = NULL)
 	{
 		$host = preg_replace('#[^\w.-]+#', '', isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : php_uname('n'));
 
