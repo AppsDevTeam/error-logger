@@ -33,13 +33,14 @@ To override maximum number of sent emails per day (default is 10), add it as a s
 \ADT\ErrorLogger::install($container, 25);
 ````
 
-or as a parameter to your config.neon:
+Available parameters in `config.neon`:
 ````
 parameters:
     ...
 
     logger:
-        maxEmailsPerDay: 25
+        maxEmailsPerDay: 10
+        maxEmailsPerRequest: 10
 
     ...
 ````

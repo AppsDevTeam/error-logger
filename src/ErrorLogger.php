@@ -25,6 +25,18 @@ class ErrorLogger extends \Tracy\Logger {
 	protected $maxEmailsPerDay;
 
 	/**
+	 * Maximální počet odeslaných emailů v rámci jednoho requestu
+	 * @var int
+	 */
+	protected $maxEmailsPerRequest;
+
+	/**
+	 * Počet odeslaných emailů v rámci aktuálního requestu
+	 * @var int
+	 */
+	protected $sentEmailsPerRequest = 0;
+
+	/**
 	 * @var \Nette\DI\Container
 	 */
 	protected $container;
@@ -49,6 +61,10 @@ class ErrorLogger extends \Tracy\Logger {
 				? $container->parameters['logger']['maxEmailsPerDay']
 				: 10
 		);
+
+		$logger->maxEmailsPerRequest = isset($container->parameters['logger']['maxEmailsPerRequest'])
+			? $container->parameters['logger']['maxEmailsPerRequest']
+			: 10;
 
 		Debugger::setLogger($logger);
 		Debugger::$maxLen = FALSE;
@@ -124,6 +140,9 @@ class ErrorLogger extends \Tracy\Logger {
 				}
 
 				$sendEmail = (
+					// ještě se vejdeme do limitu v rámci aktuálního requestu
+					$this->sentEmailsPerRequest < $this->maxEmailsPerRequest
+					&&
 					// tento hash jsme ještě neposlali
 					!in_array($messageHash, $log['hashes'], TRUE)
 					&& (
@@ -201,6 +220,8 @@ class ErrorLogger extends \Tracy\Logger {
 
 					// odešleme chybu emailem
 					call_user_func($this->mailer, $stringMessage, implode(', ', (array)$this->email), $exceptionFile);
+
+					$this->sentEmailsPerRequest++;
 				}
 			}
 		}
