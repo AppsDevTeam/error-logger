@@ -69,12 +69,12 @@ class ErrorLogger extends \Tracy\Logger {
 		Debugger::setLogger($logger);
 		Debugger::$maxLen = FALSE;
 
-		try {
-			/** @var \Nette\Security\User $securityUser */
-			$securityUser = $container->getByType('\Nette\Security\User');
+		
+		/** @var \Nette\Security\User $securityUser */
+		$securityUser = $container->getByType('\Nette\Security\User', FALSE);
+		if ($securityUser) {
 			$logger->injectSecurityUser($securityUser);
-		} catch (\Exception $e) {}
-
+		}
 		return $logger;
 	}
 
