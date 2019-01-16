@@ -117,7 +117,7 @@ class ErrorLogger extends \Tracy\Logger
 				} else if (empty($logContents)) {
 					// prázdný nebo neexistující soubor
 					$log = [
-						'hashes' => [ ],
+						'hashes' => [],
 						'counter' => 0,
 						'date' => $today,
 					];
@@ -185,16 +185,22 @@ class ErrorLogger extends \Tracy\Logger
 						$stringMessage .= "\n\n" . $backtraceString;
 					}
 
-					// obalujeme do try protoze SecurityUser je zavisly na databazi a pokud je chyba v db, tak nam error nedojde
-					try {
-						// přidáme doplnující info - referer, browser...
-						$stringMessage .= "\n\n" .
-							(isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
-							'SERVER:' . Dumper::toText($_SERVER) . "\n\n" .
-							'GET:' . Dumper::toText($_GET, [Dumper::DEPTH => 10]) . "\n\n" .
-							'POST:' . Dumper::toText($_POST, [Dumper::DEPTH => 10]) . "\n\n" .
-							(($this->container && ($securityUser = $this->container->getByType('\Nette\Security\User', FALSE))) ? 'securityUser:' . Dumper::toText($securityUser->identity, [Dumper::DEPTH => 1]) . "\n\n" : '');
-					} catch(\Exception $e) {}
+
+					// přidáme doplnující info - referer, browser...
+					$stringMessage .= "\n\n" .
+						(isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
+						'SERVER:' . Dumper::toText($_SERVER) . "\n\n" .
+						'GET:' . Dumper::toText($_GET, [Dumper::DEPTH => 10]) . "\n\n" .
+						'POST:' . Dumper::toText($_POST, [Dumper::DEPTH => 10]);
+
+					if ($this->container && ($securityUser = $this->container->getByType('\Nette\Security\User', FALSE))) {
+						// obalujeme do try protoze SecurityUser je zavisly na databazi a pokud je chyba v db, tak nam error nedojde
+						try {
+							$stringMessage .= "\n\n" .
+								'securityUser:' . Dumper::toText($securityUser->identity, [Dumper::DEPTH => 1]);
+						} catch (\Exception $e) {
+						}
+					}
 
 					if ($this->container && ($git = $this->container->getByType('\ADT\TracyGit\Git', FALSE)) !== NULL && ($gitInfo = $git->getInfo())) {
 						$stringMessage .= "\n\n";
@@ -226,7 +232,7 @@ class ErrorLogger extends \Tracy\Logger
 	public function defaultMailer($message, $email, $attachment = NULL)
 	{
 		if ($attachment === NULL) {
-		  return parent::defaultMailer($message, $email);
+			return parent::defaultMailer($message, $email);
 		}
 
 		$host = preg_replace('#[^\w.-]+#', '', isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : php_uname('n'));
@@ -236,38 +242,38 @@ class ErrorLogger extends \Tracy\Logger
 
 		$filename = basename($attachment);
 		$content = file_get_contents($attachment);
-    	$content = chunk_split(base64_encode($content));
+		$content = chunk_split(base64_encode($content));
 
 		$parts = str_replace(
 			["\r\n", "\n"],
 			["\n", PHP_EOL],
 			[
 				'headers' => implode("\n", [
-					'From: ' . ($this->fromEmail ?: "noreply@$host"),
-					'X-Mailer: Tracy',
-					'MIME-Version: 1.0',
-					'Content-Type: multipart/mixed; boundary="' . $separator . '"',
-					'Content-Transfer-Encoding: 7bit',
-				]) . "\n",
+						'From: ' . ($this->fromEmail ?: "noreply@$host"),
+						'X-Mailer: Tracy',
+						'MIME-Version: 1.0',
+						'Content-Type: multipart/mixed; boundary="' . $separator . '"',
+						'Content-Transfer-Encoding: 7bit',
+					]) . "\n",
 				'subject' => "PHP: An error occurred on the server $host",
 				'body' =>
-					"--" . $separator . $eol.
+					"--" . $separator . $eol .
 
 					// Text email
-					"Content-Type: text/plain; charset=\"UTF-8\"" . $eol.
-					"Content-Transfer-Encoding: 8bit" . $eol.$eol.
-					$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource() . $eol.
-					"--" . $separator . $eol.
+					"Content-Type: text/plain; charset=\"UTF-8\"" . $eol .
+					"Content-Transfer-Encoding: 8bit" . $eol . $eol .
+					$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource() . $eol .
+					"--" . $separator . $eol .
 
 					// Attachment
-					"Content-Type: application/octet-stream; name=\"" . $filename . "\"" . $eol.
-					"Content-Transfer-Encoding: base64" . $eol.
-					"Content-Disposition: attachment" . $eol.$eol.
-					$content . $eol.
+					"Content-Type: application/octet-stream; name=\"" . $filename . "\"" . $eol .
+					"Content-Transfer-Encoding: base64" . $eol .
+					"Content-Disposition: attachment" . $eol . $eol .
+					$content . $eol .
 					"--" . $separator . "--",
 			]
 		);
 
-    	mail($email, $parts['subject'], $parts['body'], $parts['headers']);
+		mail($email, $parts['subject'], $parts['body'], $parts['headers']);
 	}
 }
