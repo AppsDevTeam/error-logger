@@ -7,11 +7,8 @@ use Tracy\Dumper;
 use Tracy\Helpers;
 
 
-class ErrorLogger extends \Tracy\Logger {
-
-	/** @var \Nette\Security\User */
-	protected $securityUser;
-
+class ErrorLogger extends \Tracy\Logger
+{
 	/**
 	 * Cesta k souboru s deníkem chyb
 	 * @var string
@@ -43,51 +40,40 @@ class ErrorLogger extends \Tracy\Logger {
 
 	/**
 	 * Statická instalace v bootstrap.php
-	 * @param \SystemContainer|\Nette\DI\Container $container
+	 * @param $email
+	 * @param null $maxEmailPerDay
+	 * @param null $maxEmailsPerRequest
+	 * @return ErrorLogger|void
 	 */
-	public static function install($container, $maxEmailsPerDay = NULL) {
+	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL)
+	{
 		if (!Debugger::$productionMode) {
 			return;
 		}
 
-		$logger = new static(
-			$container, Debugger::$logDirectory, Debugger::$email, Debugger::getBlueScreen()
-		);
+		Debugger::$maxLen = FALSE;
+		Debugger::$email = $email;
 
-		// nejdřív zkusíme použít argument, pokud je prázdný, tak config,
-		// a pokud ani to nevyjde, tak defaultní hodnotu
-		$logger->maxEmailsPerDay = $maxEmailsPerDay ?: (
-			isset($container->parameters['logger']['maxEmailsPerDay'])
-				? $container->parameters['logger']['maxEmailsPerDay']
-				: 10
-		);
+		$logger = new static(Debugger::$logDirectory, Debugger::$email, Debugger::getBlueScreen());
 
-		$logger->maxEmailsPerRequest = isset($container->parameters['logger']['maxEmailsPerRequest'])
-			? $container->parameters['logger']['maxEmailsPerRequest']
-			: 10;
+		$logger->maxEmailsPerDay = $maxEmailsPerDay ?: 10;
+		$logger->maxEmailsPerRequest = $maxEmailsPerRequest ?: 10;
 
 		Debugger::setLogger($logger);
-		Debugger::$maxLen = FALSE;
 
-		
-		/** @var \Nette\Security\User $securityUser */
-		$securityUser = $container->getByType('\Nette\Security\User', FALSE);
-		if ($securityUser) {
-			$logger->injectSecurityUser($securityUser);
-		}
 		return $logger;
 	}
 
-	public function __construct($container, $directory, $email = NULL, \Tracy\BlueScreen $blueScreen = NULL)
+	public function __construct($directory, $email = NULL, \Tracy\BlueScreen $blueScreen = NULL)
 	{
 		parent::__construct($directory, $email, $blueScreen);
 
-		$this->container = $container;
 		$this->logFile = $this->directory . '/email-sent';
 	}
 
-	public function injectSecurityUser(\Nette\Security\User $securityUser) {
-		$this->securityUser = $securityUser;
+	public function setup(\Nette\DI\Container $container)
+	{
+		$this->container = $container;
 	}
 
 	/**
@@ -113,7 +99,6 @@ class ErrorLogger extends \Tracy\Logger {
 		}
 
 		if (in_array($priority, array(self::ERROR, self::EXCEPTION, self::CRITICAL), TRUE)) {
-
 			if ($this->email && $this->mailer) {
 				$messageHash = md5(preg_replace('~(Resource id #)\d+~', '$1', $message));
 				$logContents = @file_get_contents($this->logFile, LOCK_SH);
@@ -200,17 +185,18 @@ class ErrorLogger extends \Tracy\Logger {
 						$stringMessage .= "\n\n" . $backtraceString;
 					}
 
-					// přidáme doplnující info - referer, browser...
-					$stringMessage .= "\n\n" .
-						(isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
-						'SERVER:' . Dumper::toText($_SERVER) . "\n\n" .
-						'GET:' . Dumper::toText($_GET, [ Dumper::DEPTH => 10 ]) . "\n\n" .
-						'POST:' . Dumper::toText($_POST, [ Dumper::DEPTH => 10 ]) . "\n\n" .
-						($this->securityUser ? 'securityUser:' . Dumper::toText($this->securityUser->identity, [ Dumper::DEPTH => 1 ]) . "\n\n" : '');
+					// obalujeme do try protoze SecurityUser je zavisly na databazi a pokud je chyba v db, tak nam error nedojde
+					try {
+						// přidáme doplnující info - referer, browser...
+						$stringMessage .= "\n\n" .
+							(isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
+							'SERVER:' . Dumper::toText($_SERVER) . "\n\n" .
+							'GET:' . Dumper::toText($_GET, [Dumper::DEPTH => 10]) . "\n\n" .
+							'POST:' . Dumper::toText($_POST, [Dumper::DEPTH => 10]) . "\n\n" .
+							(($this->container && ($securityUser = $this->container->getByType('\Nette\Security\User', FALSE))) ? 'securityUser:' . Dumper::toText($securityUser->identity, [Dumper::DEPTH => 1]) . "\n\n" : '');
+					} catch(\Exception $e) {}
 
-
-					if (($git = $this->container->getByType('\ADT\TracyGit\Git', FALSE)) !== NULL && ($gitInfo = $git->getInfo())) {
-
+					if ($this->container && ($git = $this->container->getByType('\ADT\TracyGit\Git', FALSE)) !== NULL && ($gitInfo = $git->getInfo())) {
 						$stringMessage .= "\n\n";
 
 						foreach ($git->getInfo() as $key => $value) {
@@ -239,9 +225,9 @@ class ErrorLogger extends \Tracy\Logger {
 	 */
 	public function defaultMailer($message, $email, $attachment = NULL)
 	{
-    if ($attachment === NULL) {
-      return parent::defaultMailer($message, $email);
-    }
+		if ($attachment === NULL) {
+		  return parent::defaultMailer($message, $email);
+		}
 
 		$host = preg_replace('#[^\w.-]+#', '', isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : php_uname('n'));
 
@@ -250,7 +236,7 @@ class ErrorLogger extends \Tracy\Logger {
 
 		$filename = basename($attachment);
 		$content = file_get_contents($attachment);
-    $content = chunk_split(base64_encode($content));
+    	$content = chunk_split(base64_encode($content));
 
 		$parts = str_replace(
 			["\r\n", "\n"],
@@ -282,7 +268,6 @@ class ErrorLogger extends \Tracy\Logger {
 			]
 		);
 
-    mail($email, $parts['subject'], $parts['body'], $parts['headers']);
+    	mail($email, $parts['subject'], $parts['body'], $parts['headers']);
 	}
-
 }
