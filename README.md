@@ -17,7 +17,7 @@ Add to your composer.json
 ````
 
 ````
-composer require adt/errorLogger
+composer require adt/error-logger
 ````
 
 Place this to your bootstrap.php:
