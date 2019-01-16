@@ -20,27 +20,13 @@ Add to your composer.json
 composer require adt/error-logger
 ````
 
-Place this to your bootstrap.php:
+Place this to your bootstrap.php before calling `$configurator->createContainer()`:
 ````
-\ADT\ErrorLogger::install($container);
+$logger = \ADT\ErrorLogger::install($email = 'errors@example.com', $maxEmailsPerDay = 10, $maxEmailsPerRequest = 10);
 ````
-
-Configuration
--------------
-
-To override maximum number of sent emails per day (default is 10), add it as a second argument to `install` method:
-````
-\ADT\ErrorLogger::install($container, 25);
-````
-
-Available parameters in `config.neon`:
-````
-parameters:
-    ...
-
-    logger:
-        maxEmailsPerDay: 10
-        maxEmailsPerRequest: 10
-
-    ...
-````
+and this after calling `$configurator->createContainer()`:
+```
+if ($logger) {
+	$logger->setup($container);
+}
+```
