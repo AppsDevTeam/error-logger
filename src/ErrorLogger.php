@@ -69,6 +69,7 @@ class ErrorLogger extends \Tracy\Logger
 		parent::__construct($directory, $email, $blueScreen);
 
 		$this->logFile = $this->directory . '/email-sent';
+		$this->fromEmail = $email;
 	}
 
 	public function setup(\Nette\DI\Container $container)
