@@ -34,6 +34,12 @@ class ErrorLogger extends \Tracy\Logger
 	protected $sentEmailsPerRequest = 0;
 
 	/**
+	 * Pole s citlivými údaji, jejižch hodnoty se nemají zobrazovat ve výpisu.
+	 * @var array
+	 */
+	protected $sensitiveFields = [];
+
+	/**
 	 * @var \Nette\DI\Container
 	 */
 	protected $container;
@@ -43,9 +49,10 @@ class ErrorLogger extends \Tracy\Logger
 	 * @param $email
 	 * @param null $maxEmailPerDay
 	 * @param null $maxEmailsPerRequest
+	 * @param array $sensitiveFields    TODO: V příští verzi poslední 3 parametry předávat jako pole $options.
 	 * @return ErrorLogger|void
 	 */
-	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL)
+	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL, $sensitiveFields = [])
 	{
 		if (!Debugger::$productionMode) {
 			return;
@@ -58,6 +65,7 @@ class ErrorLogger extends \Tracy\Logger
 
 		$logger->maxEmailsPerDay = $maxEmailsPerDay ?: 10;
 		$logger->maxEmailsPerRequest = $maxEmailsPerRequest ?: 10;
+		$logger->sensitiveFields = $sensitiveFields;
 
 		Debugger::setLogger($logger);
 
@@ -192,7 +200,7 @@ class ErrorLogger extends \Tracy\Logger
 						(isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
 						'SERVER:' . Dumper::toText($_SERVER) . "\n\n" .
 						'GET:' . Dumper::toText($_GET, [Dumper::DEPTH => 10]) . "\n\n" .
-						'POST:' . Dumper::toText($_POST, [Dumper::DEPTH => 10]);
+						'POST:' . Dumper::toText($this->hideSensitiveFieldValue($_POST), [Dumper::DEPTH => 10]);
 
 					if ($this->container && ($securityUser = $this->container->getByType('\Nette\Security\User', FALSE))) {
 						// obalujeme do try protoze SecurityUser je zavisly na databazi a pokud je chyba v db, tak nam error nedojde
@@ -276,5 +284,19 @@ class ErrorLogger extends \Tracy\Logger
 		);
 
 		mail($email, $parts['subject'], $parts['body'], $parts['headers']);
+	}
+
+	protected function hideSensitiveFieldValue($array)
+	{
+		$sensitiveFields = $this->sensitiveFields;
+		$replacement = '*****';
+
+		array_walk_recursive($array, function (&$value, $key) use ($sensitiveFields, $replacement) {
+			if (in_array($key, $sensitiveFields, TRUE)) {
+				$value = $replacement;
+			}
+		});
+
+		return $array;
 	}
 }
