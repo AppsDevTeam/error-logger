@@ -6,21 +6,11 @@ Sends more info about the error than [Tracy\Logger](https://github.com/nette/tra
 Installation
 ------------
 
-Add to your composer.json
-````
-"repositories": [
-  {
-    "type": "git",
-    "url": "https://github.com/AppsDevTeam/ErrorLogger"
-  }
-]
-````
-
 ````
 composer require adt/error-logger
 ````
 
-Place this to your bootstrap.php before calling `$configurator->createContainer()`:
+Place this to your bootstrap.php after calling `$configurator->enableDebugger()` and before calling `$configurator->createContainer()`:
 ````
 $logger = \ADT\ErrorLogger::install($email = 'errors@example.com', $maxEmailsPerDay = 10, $maxEmailsPerRequest = 10);
 ````
