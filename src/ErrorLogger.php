@@ -238,10 +238,10 @@ class ErrorLogger extends \Tracy\Logger
 	 * @return void
 	 * @internal
 	 */
-	public function defaultMailer($message, string $email, $attachment = NULL)
+	public function defaultMailer($message, string $email, $attachment = NULL): void
 	{
 		if ($attachment === NULL) {
-			return parent::defaultMailer($message, $email);
+			parent::defaultMailer($message, $email);
 		}
 
 		$host = preg_replace('#[^\w.-]+#', '', isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : php_uname('n'));
