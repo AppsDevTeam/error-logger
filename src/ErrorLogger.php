@@ -238,7 +238,7 @@ class ErrorLogger extends \Tracy\Logger
 	 * @return void
 	 * @internal
 	 */
-	public function defaultMailer($message, $email, $attachment = NULL)
+	public function defaultMailer($message, string $email, $attachment = NULL)
 	{
 		if ($attachment === NULL) {
 			return parent::defaultMailer($message, $email);
