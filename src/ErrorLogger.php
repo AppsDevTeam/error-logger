@@ -242,6 +242,7 @@ class ErrorLogger extends \Tracy\Logger
 	{
 		if ($attachment === NULL) {
 			parent::defaultMailer($message, $email);
+			return;
 		}
 
 		$host = preg_replace('#[^\w.-]+#', '', isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : php_uname('n'));
