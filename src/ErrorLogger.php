@@ -99,7 +99,7 @@ class ErrorLogger extends \Tracy\Logger
 			throw new \RuntimeException("Directory '$this->directory' is not found or is not directory.");
 		}
 
-		$exceptionFile = $message instanceof \Exception ? $this->logException($message) : NULL;
+		$exceptionFile = $message instanceof \Throwable ? $this->logException($message) : NULL;
 		$line = $this->formatLogLine($message, $exceptionFile);
 		$file = $this->directory . '/' . strtolower($priority ?: self::INFO) . '.log';
 
