@@ -40,6 +40,12 @@ class ErrorLogger extends \Tracy\Logger
 	protected $sensitiveFields = [];
 
 	/**
+	 * Ma se vlozit error message do emailu
+	 * @var int
+	 */
+	protected $includeErrorMessage = true;
+
+	/**
 	 * @var \Nette\DI\Container
 	 */
 	protected $container;
@@ -52,7 +58,7 @@ class ErrorLogger extends \Tracy\Logger
 	 * @param array $sensitiveFields    TODO: V příští verzi poslední 3 parametry předávat jako pole $options.
 	 * @return ErrorLogger|void
 	 */
-	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL, $sensitiveFields = [])
+	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL, $sensitiveFields = [], $includeErrorMessage = true)
 	{
 		if (!Debugger::$productionMode) {
 			return;
@@ -66,6 +72,7 @@ class ErrorLogger extends \Tracy\Logger
 		$logger->maxEmailsPerDay = $maxEmailsPerDay ?: 10;
 		$logger->maxEmailsPerRequest = $maxEmailsPerRequest ?: 10;
 		$logger->sensitiveFields = $sensitiveFields;
+		$logger->includeErrorMessage = $includeErrorMessage;
 
 		Debugger::setLogger($logger);
 
@@ -243,7 +250,7 @@ class ErrorLogger extends \Tracy\Logger
 		if ($attachment === NULL) {
 			parent::defaultMailer($message, $email);
 			return;
-		}
+		};
 
 		$host = preg_replace('#[^\w.-]+#', '', isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : php_uname('n'));
 
@@ -253,6 +260,25 @@ class ErrorLogger extends \Tracy\Logger
 		$filename = basename($attachment);
 		$content = file_get_contents($attachment);
 		$content = chunk_split(base64_encode($content));
+
+		$body = '';
+		if ($this->includeErrorMessage) {
+			$body =
+				"--" . $separator . $eol .
+
+				// Text email
+				"Content-Type: text/plain; charset=\"UTF-8\"" . $eol .
+				"Content-Transfer-Encoding: 8bit" . $eol . $eol .
+				$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource() . $eol .
+				"--" . $separator . $eol .
+
+				// Attachment
+				"Content-Type: application/octet-stream; name=\"" . $filename . "\"" . $eol .
+				"Content-Transfer-Encoding: base64" . $eol .
+				"Content-Disposition: attachment" . $eol . $eol .
+				$content . $eol .
+				"--" . $separator . "--";
+		}
 
 		$parts = str_replace(
 			["\r\n", "\n"],
@@ -266,21 +292,7 @@ class ErrorLogger extends \Tracy\Logger
 						'Content-Transfer-Encoding: 7bit',
 					]) . "\n",
 				'subject' => "PHP: An error occurred on the server $host",
-				'body' =>
-					"--" . $separator . $eol .
-
-					// Text email
-					"Content-Type: text/plain; charset=\"UTF-8\"" . $eol .
-					"Content-Transfer-Encoding: 8bit" . $eol . $eol .
-					$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource() . $eol .
-					"--" . $separator . $eol .
-
-					// Attachment
-					"Content-Type: application/octet-stream; name=\"" . $filename . "\"" . $eol .
-					"Content-Transfer-Encoding: base64" . $eol .
-					"Content-Disposition: attachment" . $eol . $eol .
-					$content . $eol .
-					"--" . $separator . "--",
+				'body' => $body
 			]
 		);
 
