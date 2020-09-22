@@ -247,22 +247,20 @@ class ErrorLogger extends \Tracy\Logger
 	 */
 	public function defaultMailer($message, string $email, $attachment = NULL): void
 	{
-		if ($attachment === NULL) {
-			parent::defaultMailer($message, $email);
-			return;
-		}
-
 		$host = preg_replace('#[^\w.-]+#', '', isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : php_uname('n'));
 
 		$separator = md5(time());
 		$eol = "\n";
 
-		$filename = basename($attachment);
-		$content = file_get_contents($attachment);
-		$content = chunk_split(base64_encode($content));
-
 		$body = '';
 		if ($this->includeErrorMessage) {
+			$content = '';
+			if ($attachment) {
+				$filename = basename($attachment);
+				$content = file_get_contents($attachment);
+			}
+			$content = chunk_split(base64_encode($content));
+
 			$body =
 				"--" . $separator . $eol .
 
