@@ -6,7 +6,6 @@ use Tracy\Debugger;
 use Tracy\Dumper;
 use Tracy\Helpers;
 
-
 class ErrorLogger extends \Tracy\Logger
 {
 	/**
@@ -254,13 +253,6 @@ class ErrorLogger extends \Tracy\Logger
 
 		$body = '';
 		if ($this->includeErrorMessage) {
-			$content = '';
-			if ($attachment) {
-				$filename = basename($attachment);
-				$content = file_get_contents($attachment);
-			}
-			$content = chunk_split(base64_encode($content));
-
 			$body =
 				"--" . $separator . $eol .
 
@@ -268,14 +260,17 @@ class ErrorLogger extends \Tracy\Logger
 				"Content-Type: text/plain; charset=\"UTF-8\"" . $eol .
 				"Content-Transfer-Encoding: 8bit" . $eol . $eol .
 				$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource() . $eol .
-				"--" . $separator . $eol .
-
-				// Attachment
-				"Content-Type: application/octet-stream; name=\"" . $filename . "\"" . $eol .
-				"Content-Transfer-Encoding: base64" . $eol .
-				"Content-Disposition: attachment" . $eol . $eol .
-				$content . $eol .
-				"--" . $separator . "--";
+				"--" . $separator . $eol;
+			
+			if ($attachment) {
+				$body .=
+					// Attachment
+					"Content-Type: application/octet-stream; name=\"" . basename($attachment) . "\"" . $eol .
+					"Content-Transfer-Encoding: base64" . $eol .
+					"Content-Disposition: attachment" . $eol . $eol .
+					chunk_split(base64_encode(file_get_contents($attachment))) . $eol .
+					"--" . $separator . "--";
+			}
 		}
 
 		$parts = str_replace(
