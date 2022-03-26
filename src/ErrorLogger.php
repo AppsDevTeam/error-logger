@@ -15,6 +15,12 @@ class ErrorLogger extends \Tracy\Logger
 	protected $logFile;
 
 	/**
+	 * Maximální počet odeslaných emailů denně
+	 * @var int
+	 */
+	protected $maxEmailsPerDay;
+
+	/**
 	 * Maximální počet odeslaných emailů v rámci jednoho requestu
 	 * @var int
 	 */
@@ -43,14 +49,7 @@ class ErrorLogger extends \Tracy\Logger
 	 */
 	protected $container;
 
-	/**
-	 * Statická instalace v bootstrap.php
-	 * @param $email
-	 * @param null $maxEmailsPerRequest
-	 * @param array $sensitiveFields    TODO: V příští verzi poslední 3 parametry předávat jako pole $options.
-	 * @return ErrorLogger|void
-	 */
-	public static function install($email, $maxEmailsPerRequest = NULL, $sensitiveFields = [], $includeErrorMessage = true)
+	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL, $sensitiveFields = [], $includeErrorMessage = true)
 	{
 		if (!Debugger::$productionMode) {
 			return;
@@ -60,7 +59,8 @@ class ErrorLogger extends \Tracy\Logger
 		Debugger::$email = $email;
 
 		$logger = new static(Debugger::$logDirectory, Debugger::$email, Debugger::getBlueScreen());
-		
+
+		$logger->maxEmailsPerDay = $maxEmailsPerDay ?: 10;
 		$logger->maxEmailsPerRequest = $maxEmailsPerRequest ?: 10;
 		$logger->sensitiveFields = $sensitiveFields;
 		$logger->includeErrorMessage = $includeErrorMessage;
@@ -83,12 +83,6 @@ class ErrorLogger extends \Tracy\Logger
 		$this->container = $container;
 	}
 
-	/**
-	 * Logs message or exception to file and sends email notification.
-	 * @param  string|\Exception
-	 * @param  int   one of constant ILogger::INFO, WARNING, ERROR (sends email), EXCEPTION (sends email), CRITICAL (sends email)
-	 * @return string logged error filename
-	 */
 	public function log($message, $priority = self::INFO)
 	{
 		if (!$this->directory) {
@@ -118,6 +112,7 @@ class ErrorLogger extends \Tracy\Logger
 			}
 
 			$messageHash = md5(preg_replace('~(Resource id #)\d+~', '$1', $message));
+			$logContent = @file_get_contents($this->logFile);
 
 			if (
 				// ještě se vejdeme do limitu v rámci aktuálního requestu
@@ -129,6 +124,9 @@ class ErrorLogger extends \Tracy\Logger
 					||
 					(strstr($logContent, $messageHash) === false)
 				)
+				&&
+				// ještě se vejdeme do limitu v rámci aktuálního dne
+				substr_count($logContent, date('Y-m-d')) < $this->maxEmailsPerDay
 			) {
 				if (!@file_put_contents($this->logFile, $line . ' ' . $messageHash . PHP_EOL, FILE_APPEND | LOCK_EX)) {
 					throw new \RuntimeException("Unable to write to log file '" . $this->logFile . "'. Is directory writable?");
@@ -195,14 +193,6 @@ class ErrorLogger extends \Tracy\Logger
 		return $exceptionFile;
 	}
 
-
-	/**
-	 * Default mailer.
-	 * @param  string|\Exception|\Throwable
-	 * @param  string
-	 * @return void
-	 * @internal
-	 */
 	public function defaultMailer($message, string $email, $attachment = NULL): void
 	{
 		$host = preg_replace('#[^\w.-]+#', '', isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : php_uname('n'));
