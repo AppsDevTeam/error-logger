@@ -15,12 +15,6 @@ class ErrorLogger extends \Tracy\Logger
 	protected $logFile;
 
 	/**
-	 * Maximální počet odeslaných emailů denně
-	 * @var int
-	 */
-	protected $maxEmailsPerDay;
-
-	/**
 	 * Maximální počet odeslaných emailů v rámci jednoho requestu
 	 * @var int
 	 */
@@ -52,23 +46,21 @@ class ErrorLogger extends \Tracy\Logger
 	/**
 	 * Statická instalace v bootstrap.php
 	 * @param $email
-	 * @param null $maxEmailPerDay
 	 * @param null $maxEmailsPerRequest
 	 * @param array $sensitiveFields    TODO: V příští verzi poslední 3 parametry předávat jako pole $options.
 	 * @return ErrorLogger|void
 	 */
-	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL, $sensitiveFields = [], $includeErrorMessage = true)
+	public static function install($email, $maxEmailsPerRequest = NULL, $sensitiveFields = [], $includeErrorMessage = true)
 	{
-		if (!Debugger::$productionMode) {
-			return;
-		}
+//		if (!Debugger::$productionMode) {
+//			return;
+//		}
 
 		Debugger::$maxLen = FALSE;
 		Debugger::$email = $email;
 
 		$logger = new static(Debugger::$logDirectory, Debugger::$email, Debugger::getBlueScreen());
-
-		$logger->maxEmailsPerDay = $maxEmailsPerDay ?: 10;
+		
 		$logger->maxEmailsPerRequest = $maxEmailsPerRequest ?: 10;
 		$logger->sensitiveFields = $sensitiveFields;
 		$logger->includeErrorMessage = $includeErrorMessage;
@@ -113,123 +105,90 @@ class ErrorLogger extends \Tracy\Logger
 			throw new \RuntimeException("Unable to write to log file '$file'. Is directory writable?");
 		}
 
-		if (in_array($priority, array(self::ERROR, self::EXCEPTION, self::CRITICAL), TRUE)) {
-			if ($this->email && $this->mailer) {
-				$messageHash = md5(preg_replace('~(Resource id #)\d+~', '$1', $message));
-				$logContents = @file_get_contents($this->logFile, LOCK_SH);
-				$today = (new \DateTime)->format('Y-m-d');
-				$saveLog = FALSE;
+		if (
+			in_array($priority, array(self::WARNING, self::ERROR, self::EXCEPTION, self::CRITICAL), TRUE)
+			&&
+			$this->email
+			&&
+			$this->mailer
+		) {
+			// we delete email-sent file from yesterday
+			if (date('Y-m-d', @filemtime($this->logFile)) < (new \DateTime('midnight'))->format('Y-m-d')) {
+				@unlink($this->logFile);
+			}
 
-				$log = json_decode($logContents, TRUE);
-				if (json_last_error() && !empty($logContents)) {
-					// pokud se nepovede parsování JSONu, zřejmě je log ještě ve starém formátu
-					$log = [
-						'hashes' => explode(PHP_EOL, $logContents),
-						'counter' => 0,
-						'date' => $today,
-					];
-					$saveLog = TRUE;
-				} else if (empty($logContents)) {
-					// prázdný nebo neexistující soubor
-					$log = [
-						'hashes' => [],
-						'counter' => 0,
-						'date' => $today,
-					];
-					$saveLog = TRUE;
+			$messageHash = md5(preg_replace('~(Resource id #)\d+~', '$1', $message));
+
+			if (
+				// ještě se vejdeme do limitu v rámci aktuálního requestu
+				$this->sentEmailsPerRequest < $this->maxEmailsPerRequest
+				&&
+				// tento hash jsme ještě neposlali
+				(
+					!($logContent = @file_get_contents($this->logFile))
+					||
+					(strstr($logContent, $messageHash) === false)
+				)
+			) {
+				if (!@file_put_contents($this->logFile, $line . ' ' . $messageHash . PHP_EOL, FILE_APPEND | LOCK_EX)) {
+					throw new \RuntimeException("Unable to write to log file '" . $this->logFile . "'. Is directory writable?");
 				}
 
-				$sendEmail = (
-					// ještě se vejdeme do limitu v rámci aktuálního requestu
-					$this->sentEmailsPerRequest < $this->maxEmailsPerRequest
-					&&
-					// tento hash jsme ještě neposlali
-					!in_array($messageHash, $log['hashes'], TRUE)
-					&& (
-						// dnes je to první email
-						$log['date'] !== $today
-						||
-						// ještě se vejdeme do limitu
-						$log['counter'] < $this->maxEmailsPerDay
-					)
-				);
-
-				if ($log['date'] !== $today) {
-					// změnilo se datum, resetujeme počítadlo a datum aktualizujeme
-					$log['date'] = $today;
-					$log['counter'] = 0;
-					$saveLog = TRUE;
+				// sestavíme zprávu
+				if (is_array($message)) {
+					$stringMessage = implode(' ', $message);
+				} else {
+					$stringMessage = $message;
 				}
 
-				if ($sendEmail) {
-					// zalogujeme hash a inkrementujeme počítadlo
-					$log['hashes'][] = $messageHash;
-					$log['counter']++;
-					$saveLog = TRUE;
-				}
+				$backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+				if (count($backtrace) > 3) { //pokud jsou 3 tak jde pouze o exception a je ulozena nette chybova stranka
+					$backtraceString = "";
 
-				if ($saveLog) {
-					$logContents = json_encode($log);
-					@file_put_contents($this->logFile, $logContents, LOCK_EX);
-				}
+					for ($i = 0; $i < count($backtrace); $i++) {
+						$backtraceData = $backtrace[$i] + [
+								'file' => '_unknown_',
+								'line' => '_unknown_',
+								'function' => '_unknown_',
+							];
 
-				if ($sendEmail) {
-					// sestavíme zprávu
-					if (is_array($message)) {
-						$stringMessage = implode(' ', $message);
-					} else {
-						$stringMessage = $message;
+						$backtraceString = "#$i {$backtraceData['file']}({$backtraceData['line']}): "
+							. (isset($backtraceData['class']) ? $backtraceData['class'] . '::' : '')
+							. "{$backtraceData['function']}()\n";
 					}
 
-					$backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
-					if (count($backtrace) > 3) { //pokud jsou 3 tak jde pouze o exception a je ulozena nette chybova stranka
-						$backtraceString = "";
-
-						for ($i = 0; $i < count($backtrace); $i++) {
-							$backtraceData = $backtrace[$i] + [
-									'file' => '_unknown_',
-									'line' => '_unknown_',
-									'function' => '_unknown_',
-								];
-
-							$backtraceString = "#$i {$backtraceData['file']}({$backtraceData['line']}): "
-								. (isset($backtraceData['class']) ? $backtraceData['class'] . '::' : '')
-								. "{$backtraceData['function']}()\n";
-						}
-
-						$stringMessage .= "\n\n" . $backtraceString;
-					}
-
-
-					// přidáme doplnující info - referer, browser...
-					$stringMessage .= "\n\n" .
-						(isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
-						'SERVER:' . Dumper::toText($_SERVER) . "\n\n" .
-						'GET:' . Dumper::toText($_GET, [Dumper::DEPTH => 10]) . "\n\n" .
-						'POST:' . Dumper::toText($this->hideSensitiveFieldValue($_POST), [Dumper::DEPTH => 10]);
-
-					if ($this->container && ($securityUser = $this->container->getByType('\Nette\Security\User', FALSE))) {
-						// obalujeme do try protoze SecurityUser je zavisly na databazi a pokud je chyba v db, tak nam error nedojde
-						try {
-							$stringMessage .= "\n\n" .
-								'securityUser:' . Dumper::toText($securityUser->identity, [Dumper::DEPTH => 1]);
-						} catch (\Exception $e) {
-						}
-					}
-
-					if ($this->container && ($git = $this->container->getByType('\ADT\TracyGit\Git', FALSE)) !== NULL && ($gitInfo = $git->getInfo())) {
-						$stringMessage .= "\n\n";
-
-						foreach ($git->getInfo() as $key => $value) {
-							$stringMessage .= $key . ": " . $value . "\n";
-						}
-					}
-
-					// odešleme chybu emailem
-					call_user_func($this->mailer, $stringMessage, implode(', ', (array)$this->email), $exceptionFile);
-
-					$this->sentEmailsPerRequest++;
+					$stringMessage .= "\n\n" . $backtraceString;
 				}
+
+
+				// přidáme doplnující info - referer, browser...
+				$stringMessage .= "\n\n" .
+					(isset($_SERVER['HTTP_HOST']) ? 'LINK:' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] . "\n" : '') .
+					'SERVER:' . Dumper::toText($_SERVER) . "\n\n" .
+					'GET:' . Dumper::toText($_GET, [Dumper::DEPTH => 10]) . "\n\n" .
+					'POST:' . Dumper::toText($this->hideSensitiveFieldValue($_POST), [Dumper::DEPTH => 10]);
+
+				if ($this->container && ($securityUser = $this->container->getByType('\Nette\Security\User', FALSE))) {
+					// obalujeme do try protoze SecurityUser je zavisly na databazi a pokud je chyba v db, tak nam error nedojde
+					try {
+						$stringMessage .= "\n\n" .
+							'securityUser:' . Dumper::toText($securityUser->identity, [Dumper::DEPTH => 1]);
+					} catch (\Exception $e) {
+					}
+				}
+
+				if ($this->container && ($git = $this->container->getByType('\ADT\TracyGit\Git', FALSE)) !== NULL && ($gitInfo = $git->getInfo())) {
+					$stringMessage .= "\n\n";
+
+					foreach ($git->getInfo() as $key => $value) {
+						$stringMessage .= $key . ": " . $value . "\n";
+					}
+				}
+
+				// odešleme chybu emailem
+				call_user_func($this->mailer, $stringMessage, implode(', ', (array)$this->email), $exceptionFile);
+
+				$this->sentEmailsPerRequest++;
 			}
 		}
 
@@ -278,7 +237,6 @@ class ErrorLogger extends \Tracy\Logger
 			["\n", PHP_EOL],
 			[
 				'headers' => implode("\n", [
-						'From: ' . ($this->fromEmail ?: "noreply@$host"),
 						'X-Mailer: Tracy',
 						'MIME-Version: 1.0',
 						'Content-Type: multipart/mixed; boundary="' . $separator . '"',
