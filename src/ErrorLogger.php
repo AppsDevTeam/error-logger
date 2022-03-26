@@ -52,9 +52,9 @@ class ErrorLogger extends \Tracy\Logger
 	 */
 	public static function install($email, $maxEmailsPerRequest = NULL, $sensitiveFields = [], $includeErrorMessage = true)
 	{
-//		if (!Debugger::$productionMode) {
-//			return;
-//		}
+		if (!Debugger::$productionMode) {
+			return;
+		}
 
 		Debugger::$maxLen = FALSE;
 		Debugger::$email = $email;
