@@ -2,60 +2,54 @@
 
 namespace ADT;
 
+use DateTime;
+use Exception;
+use Nette\DI\Container;
+use RuntimeException;
 use Tracy\Debugger;
 use Tracy\Dumper;
 use Tracy\Helpers;
+use Tracy\Logger;
 
-class ErrorLogger extends \Tracy\Logger
+class ErrorLogger extends Logger
 {
-	/**
-	 * Cesta k souboru s deníkem chyb
-	 * @var string
-	 */
-	protected $logFile;
-
 	/**
 	 * Maximální počet odeslaných emailů denně
 	 * @var int
 	 */
-	protected $maxEmailsPerDay;
+	protected int $maxEmailsPerDay;
 
 	/**
 	 * Maximální počet odeslaných emailů v rámci jednoho requestu
 	 * @var int
 	 */
-	protected $maxEmailsPerRequest;
+	protected int $maxEmailsPerRequest;
 
 	/**
 	 * Počet odeslaných emailů v rámci aktuálního requestu
 	 * @var int
 	 */
-	protected $sentEmailsPerRequest = 0;
+	protected int $sentEmailsPerRequest = 0;
 
 	/**
 	 * Pole s citlivými údaji, jejižch hodnoty se nemají zobrazovat ve výpisu.
 	 * @var array
 	 */
-	protected $sensitiveFields = [];
+	protected array $sensitiveFields = [];
 
 	/**
 	 * Ma se vlozit error message do emailu
-	 * @var int
 	 */
-	protected $includeErrorMessage = true;
+	protected bool $includeErrorMessage = true;
 
-	/**
-	 * @var \Nette\DI\Container
-	 */
-	protected $container;
+	protected ?Container $container = null;
 
-	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL, $sensitiveFields = [], $includeErrorMessage = true)
+	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL, $sensitiveFields = [], $includeErrorMessage = true): ?Logger
 	{
 		if (!Debugger::$productionMode) {
-			return;
+			return null;
 		}
 
-		Debugger::$maxLen = FALSE;
 		Debugger::$email = $email;
 
 		$logger = new static(Debugger::$logDirectory, Debugger::$email, Debugger::getBlueScreen());
@@ -70,49 +64,31 @@ class ErrorLogger extends \Tracy\Logger
 		return $logger;
 	}
 
-	public function __construct($directory, $email = NULL, \Tracy\BlueScreen $blueScreen = NULL)
-	{
-		parent::__construct($directory, $email, $blueScreen);
-
-		$this->logFile = $this->directory . '/email-sent';
-		$this->fromEmail = $email;
-	}
-
-	public function setup(\Nette\DI\Container $container)
+	public function setup(Container $container)
 	{
 		$this->container = $container;
 	}
 
-	public function log($message, $priority = self::INFO)
+	protected function sendEmail($message): void
 	{
-		if (!$this->directory) {
-			throw new \LogicException('Directory is not specified.');
-		} elseif (!is_dir($this->directory)) {
-			throw new \RuntimeException("Directory '$this->directory' is not found or is not directory.");
-		}
-
-		$exceptionFile = $message instanceof \Throwable ? $this->logException($message) : NULL;
-		$line = $this->formatLogLine($message, $exceptionFile);
-		$file = $this->directory . '/' . strtolower($priority ?: self::INFO) . '.log';
-
-		if (!@file_put_contents($file, $line . PHP_EOL, FILE_APPEND | LOCK_EX)) {
-			throw new \RuntimeException("Unable to write to log file '$file'. Is directory writable?");
-		}
-
 		if (
-			in_array($priority, array(self::WARNING, self::ERROR, self::EXCEPTION, self::CRITICAL), TRUE)
-			&&
 			$this->email
 			&&
 			$this->mailer
 		) {
+			$exceptionFile = $this->getExceptionFile($message);
+			if (!file_exists($exceptionFile)) {
+				$exceptionFile = null;
+			}
+			$line = static::formatLogLine($message, $exceptionFile);
+			$logFile = $this->directory . '/email-sent';
+
 			// we delete email-sent file from yesterday
-			if (date('Y-m-d', @filemtime($this->logFile)) < (new \DateTime('midnight'))->format('Y-m-d')) {
-				@unlink($this->logFile);
+			if (date('Y-m-d', @filemtime($logFile)) < (new DateTime('midnight'))->format('Y-m-d')) {
+				@unlink($logFile);
 			}
 
 			$messageHash = md5(preg_replace('~(Resource id #)\d+~', '$1', $message));
-			$logContent = @file_get_contents($this->logFile);
 
 			if (
 				// ještě se vejdeme do limitu v rámci aktuálního requestu
@@ -120,7 +96,7 @@ class ErrorLogger extends \Tracy\Logger
 				&&
 				// tento hash jsme ještě neposlali
 				(
-					!($logContent = @file_get_contents($this->logFile))
+					!($logContent = @file_get_contents($logFile))
 					||
 					(strstr($logContent, $messageHash) === false)
 				)
@@ -128,8 +104,8 @@ class ErrorLogger extends \Tracy\Logger
 				// ještě se vejdeme do limitu v rámci aktuálního dne
 				substr_count($logContent, date('Y-m-d')) < $this->maxEmailsPerDay
 			) {
-				if (!@file_put_contents($this->logFile, $line . ' ' . $messageHash . PHP_EOL, FILE_APPEND | LOCK_EX)) {
-					throw new \RuntimeException("Unable to write to log file '" . $this->logFile . "'. Is directory writable?");
+				if (!@file_put_contents($logFile, $line . ' ' . $messageHash . PHP_EOL, FILE_APPEND | LOCK_EX)) {
+					throw new RuntimeException("Unable to write to log file '" . $logFile . "'. Is directory writable?");
 				}
 
 				// sestavíme zprávu
@@ -171,14 +147,13 @@ class ErrorLogger extends \Tracy\Logger
 					try {
 						$stringMessage .= "\n\n" .
 							'securityUser:' . Dumper::toText($securityUser->identity, [Dumper::DEPTH => 1]);
-					} catch (\Exception $e) {
-					}
+					} catch (Exception $e) {}
 				}
 
 				if ($this->container && ($git = $this->container->getByType('\ADT\TracyGit\Git', FALSE)) !== NULL && ($gitInfo = $git->getInfo())) {
 					$stringMessage .= "\n\n";
 
-					foreach ($git->getInfo() as $key => $value) {
+					foreach ($gitInfo as $key => $value) {
 						$stringMessage .= $key . ": " . $value . "\n";
 					}
 				}
@@ -189,13 +164,14 @@ class ErrorLogger extends \Tracy\Logger
 				$this->sentEmailsPerRequest++;
 			}
 		}
-
-		return $exceptionFile;
 	}
 
-	public function defaultMailer($message, string $email, $attachment = NULL): void
+	/**
+	 * @internal
+	 */
+	public function defaultMailer($message, string $email, ?string $attachment = null): void
 	{
-		$host = preg_replace('#[^\w.-]+#', '', isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : php_uname('n'));
+		$host = preg_replace('#[^\w.-]+#', '', $_SERVER['HTTP_HOST'] ?? php_uname('n'));
 
 		$separator = md5(time());
 		$eol = "\n";
@@ -210,7 +186,7 @@ class ErrorLogger extends \Tracy\Logger
 				"Content-Transfer-Encoding: 8bit" . $eol . $eol .
 				$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource() . $eol .
 				"--" . $separator . $eol;
-			
+
 			if ($attachment) {
 				$body .=
 					// Attachment
@@ -240,7 +216,7 @@ class ErrorLogger extends \Tracy\Logger
 		mail($email, $parts['subject'], $parts['body'], $parts['headers']);
 	}
 
-	protected function hideSensitiveFieldValue($array)
+	protected function hideSensitiveFieldValue($array): array
 	{
 		$sensitiveFields = $this->sensitiveFields;
 		$replacement = '*****';
