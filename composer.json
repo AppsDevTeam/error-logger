@@ -6,13 +6,13 @@
 	"license": ["BSD-3-Clause", "GPL-2.0", "GPL-3.0"],
 	"authors": [
 		{
-			"name": "ADT",
-			"homepage": "http://appsdevteam.com"
+			"name": "Apps Dev Team",
+			"homepage": "https://www.appsdevteam.com"
 		}
 	],
 	"require": {
-		"php": ">=7.1",
-		"tracy/tracy": ">=2.3.0"
+		"php": ">=7.4",
+		"tracy/tracy": ">=2.6.0"
 	},
 	"suggest": {
 		"adt/tracy-git": "Useful for displaying information about currently deployed application version."
