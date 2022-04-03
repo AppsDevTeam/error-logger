@@ -76,10 +76,9 @@ class ErrorLogger extends Logger
 			&&
 			$this->mailer
 		) {
-			$exceptionFile = $this->getExceptionFile($message);
-			if (!file_exists($exceptionFile)) {
-				$exceptionFile = null;
-			}
+			$exceptionFile = $message instanceof \Throwable
+				? $this->getExceptionFile($message)
+				: null;
 			$line = static::formatLogLine($message, $exceptionFile);
 			$logFile = $this->directory . '/email-sent';
 
