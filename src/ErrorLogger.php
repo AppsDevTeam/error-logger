@@ -87,7 +87,9 @@ class ErrorLogger extends Logger
 				@unlink($logFile);
 			}
 
-			$messageHash = md5(preg_replace('~(Resource id #)\d+~', '$1', $message));
+			$messageHash = preg_replace('~(Resource id #)\d+~', '$1', $message);
+			$messageHash = preg_replace('~(PID: )\d+~', '$1', $messageHash);
+			$messageHash = md5($messageHash);
 
 			if (
 				// ještě se vejdeme do limitu v rámci aktuálního requestu
