@@ -44,7 +44,7 @@ class ErrorLogger extends Logger
 
 	protected ?Container $container = null;
 
-	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL, $sensitiveFields = [], $includeErrorMessage = true): ?Logger
+	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL, $sensitiveFields = [], $includeErrorMessage = true): ?self
 	{
 		if (!Debugger::$productionMode) {
 			return null;
