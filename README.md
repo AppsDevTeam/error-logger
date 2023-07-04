@@ -6,45 +6,16 @@ Sends more info about the error than [Tracy\Logger](https://github.com/nette/tra
 Installation
 ------------
 
-````
+````bash
 composer require adt/error-logger
 ````
 
-Place this to your bootstrap.php after calling `$configurator->enableDebugger()` and before calling `$configurator->createContainer()`:
-````
+Place this to your bootstrap.php after calling `$configurator->enableDebugger()`:
+
+````php
 $logger = \ADT\ErrorLogger::install($email = 'errors@example.com', $maxEmailsPerDay = 10, $maxEmailsPerRequest = 10);
-````
-and this after calling `$configurator->createContainer()`:
-```
-if ($logger) {
-	$logger->setup($container);
+if (!\Tracy\Debugger::$productionMode) {
+	// Do not send emails
+	$logger->mailer = null;
 }
-```
-
-**Sensitive fields:**
-
-You can specify keys of array, which will be hidden in POST dump.
-
-Example:
-
 ````
-$logger = \ADT\ErrorLogger::install(
-	'errors@example.com',
-	10,
-	10,
-	$sensitiveFields = [
-		'password',
-	]
-);
-````
-
-POST dump:
-
-```
-POST:array (4)
-   username => "my_username" (11)
-   password => "*****" (5)
-   login => "Sign in" (7)
-   _do => "signForm-submit" (15)
-```
-
