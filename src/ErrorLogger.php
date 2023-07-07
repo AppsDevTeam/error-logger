@@ -138,12 +138,13 @@ class ErrorLogger extends Logger
 			["\r\n", "\n"],
 			["\n", PHP_EOL],
 			[
-				'headers' => implode("\n", [
+				'headers' => implode("\n", array_filter([
+						($this->fromEmail ? 'From: ' . $this->fromEmail : ''),
 						'X-Mailer: Tracy',
 						'MIME-Version: 1.0',
 						'Content-Type: multipart/mixed; boundary="' . $separator . '"',
 						'Content-Transfer-Encoding: 7bit',
-					]) . "\n",
+					])) . "\n",
 				'subject' => "PHP: An error occurred on the server $host",
 				'body' => $body
 			]
