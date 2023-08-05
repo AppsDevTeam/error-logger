@@ -2,7 +2,6 @@
 
 namespace ADT;
 
-use DateTime;
 use RuntimeException;
 use Tracy\Debugger;
 use Tracy\Helpers;
@@ -45,7 +44,7 @@ final class ErrorLogger extends Logger
 		$maxEmailsPerRequest = 10,
 		$includeExceptionFile = true,
 		$errorMessageSanitizeRegex = '~\d|(/[^\s]*)|(\w+://)~', // removes all numbers, absolut paths and protocols
-		$emailSnooze = 'midnight'
+		$emailSnooze = '1 day'
 	): ?self
 	{
 		Debugger::$email = $email;
@@ -79,8 +78,12 @@ final class ErrorLogger extends Logger
 		$line = self::formatLogLine($message, $exceptionFile);
 		$logFile = $this->directory . '/email-sent';
 
+		$snooze = is_numeric($this->emailSnooze)
+			? $this->emailSnooze
+			: strtotime($this->emailSnooze) - time();
+
 		// Delete email-sent file from yesterday
-		if (date('Y-m-d', @filemtime($logFile)) < (new DateTime($this->emailSnooze))->format('Y-m-d')) {
+		if (($filemtime = @filemtime($this->directory . '/email-sent')) && ($filemtime + $snooze < time())) {
 			@unlink($logFile);
 		}
 
