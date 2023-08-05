@@ -8,40 +8,55 @@ use Tracy\Debugger;
 use Tracy\Helpers;
 use Tracy\Logger;
 
-class ErrorLogger extends Logger
+final class ErrorLogger extends Logger
 {
 	/**
 	 * Maximum number of emails per day
 	 * @var int
 	 */
-	protected int $maxEmailsPerDay;
+	public int $maxEmailsPerDay;
 
 	/**
 	 * Maximum number of emails per request
 	 * @var int
 	 */
-	protected int $maxEmailsPerRequest;
+	public int $maxEmailsPerRequest;
+
+	/**
+	 * Regular expression which removes matches before checking if email was already sent
+	 * @var string
+	 */
+	public string $errorMessageSanitizeRegex;
+
+	/**
+	 * Include exception file as an attachment?
+	 */
+	public bool $includeExceptionFile;
 
 	/**
 	 * Number of emails in current request
 	 * @var int
 	 */
-	protected int $sentEmailsPerRequest = 0;
+	private int $sentEmailsPerRequest = 0;
 
-	/**
-	 * Include exception file as an attachment?
-	 */
-	protected bool $includeErrorMessage = true;
-
-	public static function install($email, $maxEmailsPerDay = NULL, $maxEmailsPerRequest = NULL, $includeErrorMessage = true): ?self
+	public static function install(
+		$email,
+		$maxEmailsPerDay = 100,
+		$maxEmailsPerRequest = 10,
+		$includeExceptionFile = true,
+		$errorMessageSanitizeRegex = '~\d|(/[^\s]*)|(\w+://)~', // removes all numbers, absolut paths and protocols
+		$emailSnooze = 'midnight'
+	): ?self
 	{
 		Debugger::$email = $email;
 
-		$logger = new static(Debugger::$logDirectory, Debugger::$email, Debugger::getBlueScreen());
+		$logger = new self(Debugger::$logDirectory, Debugger::$email, Debugger::getBlueScreen());
 
-		$logger->maxEmailsPerDay = $maxEmailsPerDay ?: 10;
-		$logger->maxEmailsPerRequest = $maxEmailsPerRequest ?: 10;
-		$logger->includeErrorMessage = $includeErrorMessage;
+		$logger->maxEmailsPerDay = $maxEmailsPerDay;
+		$logger->maxEmailsPerRequest = $maxEmailsPerRequest;
+		$logger->includeExceptionFile = $includeExceptionFile;
+		$logger->errorMessageSanitizeRegex = $errorMessageSanitizeRegex;
+		$logger->emailSnooze = $emailSnooze;
 
 		Debugger::setLogger($logger);
 
@@ -61,17 +76,15 @@ class ErrorLogger extends Logger
 		$exceptionFile = $message instanceof \Throwable
 			? $this->getExceptionFile($message)
 			: null;
-		$line = static::formatLogLine($message, $exceptionFile);
+		$line = self::formatLogLine($message, $exceptionFile);
 		$logFile = $this->directory . '/email-sent';
 
 		// Delete email-sent file from yesterday
-		if (date('Y-m-d', @filemtime($logFile)) < (new DateTime('midnight'))->format('Y-m-d')) {
+		if (date('Y-m-d', @filemtime($logFile)) < (new DateTime($this->emailSnooze))->format('Y-m-d')) {
 			@unlink($logFile);
 		}
 
-		$messageHash = preg_replace('~(Resource id #)\d+~', '$1', $message);
-		$messageHash = preg_replace('~(PID: )\d+~', '$1', $messageHash);
-		$messageHash = md5($messageHash);
+		$messageHash = md5($this->sanitizeString($message));
 
 		if ($this->sentEmailsPerRequest >= $this->maxEmailsPerRequest) {
 			// Limit per request exceeded
@@ -105,33 +118,30 @@ class ErrorLogger extends Logger
 	/**
 	 * @internal
 	 */
-	public function defaultMailer($message, string $email, ?string $attachment = null): void
+	public function defaultMailer($message, string $email, ?string $exceptionFile = null): void
 	{
 		$host = preg_replace('#[^\w.-]+#', '', $_SERVER['HTTP_HOST'] ?? php_uname('n'));
 
 		$separator = md5(time());
 		$eol = "\n";
 
-		$body = '';
-		if ($this->includeErrorMessage) {
-			$body =
-				"--" . $separator . $eol .
+		$body =
+			"--" . $separator . $eol .
 
-				// Text email
-				"Content-Type: text/plain; charset=\"UTF-8\"" . $eol .
-				"Content-Transfer-Encoding: 8bit" . $eol . $eol .
-				$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource() . $eol .
-				"--" . $separator . $eol;
+			// Text email
+			"Content-Type: text/plain; charset=\"UTF-8\"" . $eol .
+			"Content-Transfer-Encoding: 8bit" . $eol . $eol .
+			$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource() . $eol .
+			"--" . $separator . $eol;
 
-			if ($attachment) {
-				$body .=
-					// Attachment
-					"Content-Type: application/octet-stream; name=\"" . basename($attachment) . "\"" . $eol .
-					"Content-Transfer-Encoding: base64" . $eol .
-					"Content-Disposition: attachment" . $eol . $eol .
-					chunk_split(base64_encode(file_get_contents($attachment))) . $eol .
-					"--" . $separator . "--";
-			}
+		if ($exceptionFile && $this->includeExceptionFile) {
+			$body .=
+				// Attachment
+				"Content-Type: application/octet-stream; name=\"" . basename($exceptionFile) . "\"" . $eol .
+				"Content-Transfer-Encoding: base64" . $eol .
+				"Content-Disposition: attachment" . $eol . $eol .
+				chunk_split(base64_encode(file_get_contents($exceptionFile))) . $eol .
+				"--" . $separator . "--";
 		}
 
 		$parts = str_replace(
@@ -153,4 +163,8 @@ class ErrorLogger extends Logger
 		mail($email, $parts['subject'], $parts['body'], $parts['headers']);
 	}
 
+	private function sanitizeString($string): string
+	{
+		return preg_replace($this->errorMessageSanitizeRegex, '', $string);
+	}
 }
