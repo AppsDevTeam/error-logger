@@ -19,7 +19,7 @@ $logger = \ADT\ErrorLogger::install(
 	$maxEmailsPerRequest = 10, 
 	$includeExceptionFile = true,
 	$errorMessageSanitizeRegex = '~\d|(/[^\s]*)|(\w+://)~', // removes all numbers, absolut paths and protocols
-	$emailSnooze = 'midnight'
+	$emailSnooze = '1 day'
 );
 if (!\Tracy\Debugger::$productionMode) {
 	// Do not send emails
