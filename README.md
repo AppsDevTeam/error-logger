@@ -14,10 +14,10 @@ Place this to your bootstrap.php after calling `$configurator->enableDebugger()`
 
 ````php
 $logger = \ADT\ErrorLogger::install(
-    $email = 'errors@example.com', 
-    $maxEmailsPerDay = 100, 
-    $maxEmailsPerRequest = 10, 
-    $includeExceptionFile = true,
+	$email = 'errors@example.com', 
+	$maxEmailsPerDay = 100, 
+	$maxEmailsPerRequest = 10, 
+	$includeExceptionFile = true,
 	$errorMessageSanitizeRegex = '~\d|(/[^\s]*)|(\w+://)~', // removes all numbers, absolut paths and protocols
 	$emailSnooze = 'midnight'
 );
