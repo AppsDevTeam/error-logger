@@ -2,6 +2,7 @@
 
 namespace ADT;
 
+use DateTime;
 use RuntimeException;
 use Tracy\Debugger;
 use Tracy\Helpers;
@@ -72,30 +73,33 @@ final class ErrorLogger extends Logger
 			return;
 		}
 
+		if ($this->sentEmailsPerRequest >= $this->maxEmailsPerRequest) {
+			// Limit per request exceeded
+			return;
+		}
+
 		$exceptionFile = $message instanceof \Throwable
 			? $this->getExceptionFile($message)
 			: null;
 		$line = self::formatLogLine($message, $exceptionFile);
-		$logFile = $this->directory . '/email-sent';
+
+		$messageHash = md5($this->sanitizeString($message));
+
+		// ERROR SNOOZE
+
+		$errorSnoozeLog = $this->directory . '/error-snooze.log';
 
 		$snooze = is_numeric($this->emailSnooze)
 			? $this->emailSnooze
 			: strtotime($this->emailSnooze) - time();
 
 		// Delete email-sent file from yesterday
-		if (($filemtime = @filemtime($this->directory . '/email-sent')) && ($filemtime + $snooze < time())) {
-			@unlink($logFile);
-		}
-
-		$messageHash = md5($this->sanitizeString($message));
-
-		if ($this->sentEmailsPerRequest >= $this->maxEmailsPerRequest) {
-			// Limit per request exceeded
-			return;
+		if (($filemtime = @filemtime($errorSnoozeLog)) && ($filemtime + $snooze < time())) {
+			@unlink($errorSnoozeLog);
 		}
 
 		if (
-			($logContent = @file_get_contents($logFile))
+			($logContent = @file_get_contents($errorSnoozeLog))
 			&&
 			(strstr($logContent, $messageHash) !== false)
 		) {
@@ -103,15 +107,29 @@ final class ErrorLogger extends Logger
 			return;
 		}
 
+		self::writeToLogFile($errorSnoozeLog, $line . ' ' . $messageHash);
+
+		// MAX EMAILS PER DY
+
+		$maxEmailsPerDayLog = $this->directory . '/max-emails-per-day.log';
+
+		// delete file from yesterday
+		if (date('Y-m-d', @filemtime($maxEmailsPerDayLog)) < (new DateTime('midnight'))->format('Y-m-d')) {
+			@unlink($maxEmailsPerDayLog);
+		}
+
+		$logContent = @file_get_contents($errorSnoozeLog);
+
 		if (substr_count($logContent, date('Y-m-d')) >= $this->maxEmailsPerDay) {
 			// Limit per day exceeded
 			return;
 		}
 
-		if (!@file_put_contents($logFile, $line . ' ' . $messageHash . PHP_EOL, FILE_APPEND | LOCK_EX)) {
-			throw new RuntimeException("Unable to write to log file '" . $logFile . "'. Is directory writable?");
+		if (!@file_put_contents($errorSnoozeLog, $line . ' ' . $messageHash . PHP_EOL, FILE_APPEND | LOCK_EX)) {
+			throw new RuntimeException("Unable to write to log file '" . $errorSnoozeLog . "'. Is directory writable?");
 		}
 
+		// SEND EMAIL
 
 		call_user_func($this->mailer, $message, implode(', ', (array)$this->email), $exceptionFile);
 
@@ -169,5 +187,12 @@ final class ErrorLogger extends Logger
 	private function sanitizeString($string): string
 	{
 		return preg_replace($this->errorMessageSanitizeRegex, '', $string);
+	}
+
+	private static function writeToLogFile($filename, $data)
+	{
+		if (!@file_put_contents($filename, $data . PHP_EOL, FILE_APPEND | LOCK_EX)) {
+			throw new RuntimeException("Unable to write to log file '" . $filename . "'. Is directory writable?");
+		}
 	}
 }
