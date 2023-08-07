@@ -109,7 +109,7 @@ final class ErrorLogger extends Logger
 
 		self::writeToLogFile($errorSnoozeLog, $line . ' ' . $messageHash);
 
-		// MAX EMAILS PER DY
+		// MAX EMAILS PER DAY
 
 		$maxEmailsPerDayLog = $this->directory . '/max-emails-per-day.log';
 
@@ -118,16 +118,16 @@ final class ErrorLogger extends Logger
 			@unlink($maxEmailsPerDayLog);
 		}
 
-		$logContent = @file_get_contents($errorSnoozeLog);
+		$logContent = @file_get_contents($maxEmailsPerDayLog);
 
-		if (substr_count($logContent, date('Y-m-d')) >= $this->maxEmailsPerDay) {
+		file_put_contents('adasd', count(file($maxEmailsPerDayLog)));
+
+		if (count(file($maxEmailsPerDayLog)) >= $this->maxEmailsPerDay) {
 			// Limit per day exceeded
 			return;
 		}
 
-		if (!@file_put_contents($errorSnoozeLog, $line . ' ' . $messageHash . PHP_EOL, FILE_APPEND | LOCK_EX)) {
-			throw new RuntimeException("Unable to write to log file '" . $errorSnoozeLog . "'. Is directory writable?");
-		}
+		self::writeToLogFile($maxEmailsPerDayLog, $line . ' ' . $messageHash);
 
 		// SEND EMAIL
 
