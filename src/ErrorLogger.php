@@ -114,15 +114,9 @@ final class ErrorLogger extends Logger
 		$maxEmailsPerDayLog = $this->directory . '/max-emails-per-day.log';
 
 		// delete file from yesterday
-		if (date('Y-m-d', @filemtime($maxEmailsPerDayLog)) < (new DateTime('midnight'))->format('Y-m-d')) {
+		if (($filemtime = @filemtime($maxEmailsPerDayLog)) && date('Y-m-d', $filemtime) < (new DateTime('midnight'))->format('Y-m-d')) {
 			@unlink($maxEmailsPerDayLog);
-		}
-
-		$logContent = @file_get_contents($maxEmailsPerDayLog);
-
-		file_put_contents('adasd', count(file($maxEmailsPerDayLog)));
-
-		if (count(file($maxEmailsPerDayLog)) >= $this->maxEmailsPerDay) {
+		} elseif (($lines = @file($maxEmailsPerDayLog)) && count($lines) >= $this->maxEmailsPerDay) {
 			// Limit per day exceeded
 			return;
 		}
