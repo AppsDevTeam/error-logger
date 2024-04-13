@@ -40,6 +40,7 @@ final class ErrorLogger extends Logger
 	private int $sentEmailsPerRequest = 0;
 
 	public static function install(
+		$logDirectory,
 		$email,
 		$maxEmailsPerDay = 100,
 		$maxEmailsPerRequest = 10,
@@ -48,9 +49,7 @@ final class ErrorLogger extends Logger
 		$emailSnooze = '1 day'
 	): ?self
 	{
-		Debugger::$email = $email;
-
-		$logger = new self(Debugger::$logDirectory, Debugger::$email, Debugger::getBlueScreen());
+		$logger = new self($logDirectory, $email, Debugger::getBlueScreen());
 
 		$logger->maxEmailsPerDay = $maxEmailsPerDay;
 		$logger->maxEmailsPerRequest = $maxEmailsPerRequest;
@@ -58,12 +57,10 @@ final class ErrorLogger extends Logger
 		$logger->errorMessageSanitizeRegex = $errorMessageSanitizeRegex;
 		$logger->emailSnooze = $emailSnooze;
 
-		Debugger::setLogger($logger);
-
 		return $logger;
 	}
 
-	protected function sendEmail($message): void
+	public function sendEmail($message): void
 	{
 		if (
 			!$this->email
@@ -109,25 +106,19 @@ final class ErrorLogger extends Logger
 
 		self::writeToLogFile($errorSnoozeLog, $line . ' ' . $messageHash);
 
-		// MAX EMAILS PER DY
+		// MAX EMAILS PER DAY
 
 		$maxEmailsPerDayLog = $this->directory . '/max-emails-per-day.log';
 
 		// delete file from yesterday
-		if (date('Y-m-d', @filemtime($maxEmailsPerDayLog)) < (new DateTime('midnight'))->format('Y-m-d')) {
+		if (($filemtime = @filemtime($maxEmailsPerDayLog)) && date('Y-m-d', $filemtime) < (new DateTime('midnight'))->format('Y-m-d')) {
 			@unlink($maxEmailsPerDayLog);
-		}
-
-		$logContent = @file_get_contents($errorSnoozeLog);
-
-		if (substr_count($logContent, date('Y-m-d')) >= $this->maxEmailsPerDay) {
+		} elseif (($lines = @file($maxEmailsPerDayLog)) && count($lines) >= $this->maxEmailsPerDay) {
 			// Limit per day exceeded
 			return;
 		}
 
-		if (!@file_put_contents($errorSnoozeLog, $line . ' ' . $messageHash . PHP_EOL, FILE_APPEND | LOCK_EX)) {
-			throw new RuntimeException("Unable to write to log file '" . $errorSnoozeLog . "'. Is directory writable?");
-		}
+		self::writeToLogFile($maxEmailsPerDayLog, $line . ' ' . $messageHash);
 
 		// SEND EMAIL
 
