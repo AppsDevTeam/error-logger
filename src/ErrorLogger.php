@@ -81,6 +81,12 @@ final class ErrorLogger extends Logger
 		$exceptionFile = $message instanceof \Throwable
 			? $this->getExceptionFile($message)
 			: null;
+		$exceptionMdFile = $exceptionFile && substr($exceptionFile, -5) === '.html'
+			? substr($exceptionFile, 0, -5) . '.md'
+			: null;
+		if ($exceptionMdFile !== null && !is_file($exceptionMdFile)) {
+			$exceptionMdFile = null;
+		}
 		$line = self::formatLogLine($message, $exceptionFile);
 
 		$messageHash = md5($this->sanitizeString($message));
@@ -125,7 +131,7 @@ final class ErrorLogger extends Logger
 
 		// SEND EMAIL
 
-		call_user_func($this->mailer, $message, implode(', ', (array)$this->email), $exceptionFile);
+		call_user_func($this->mailer, $message, implode(', ', (array)$this->email), $exceptionFile, $exceptionMdFile);
 
 		$this->sentEmailsPerRequest++;
 	}
@@ -133,31 +139,41 @@ final class ErrorLogger extends Logger
 	/**
 	 * @internal
 	 */
-	public function defaultMailer($message, string $email, ?string $exceptionFile = null): void
+	public function defaultMailer($message, string $email, ?string $exceptionFile = null, ?string $exceptionMdFile = null): void
 	{
 		$host = preg_replace('#[^\w.-]+#', '', $_SERVER['HTTP_HOST'] ?? php_uname('n'));
 
 		$separator = md5(time());
 		$eol = "\n";
 
-		$body =
-			"--" . $separator . $eol .
-
+		$bodyParts = [
 			// Text email
 			"Content-Type: text/plain; charset=\"UTF-8\"" . $eol .
 			"Content-Transfer-Encoding: 8bit" . $eol . $eol .
-			$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource() . $eol .
-			"--" . $separator . $eol;
+			$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource(),
+		];
 
 		if ($exceptionFile && $this->includeExceptionFile) {
-			$body .=
+			$bodyParts[] =
 				// Attachment
 				"Content-Type: application/octet-stream; name=\"" . basename($exceptionFile) . "\"" . $eol .
 				"Content-Transfer-Encoding: base64" . $eol .
 				"Content-Disposition: attachment" . $eol . $eol .
-				chunk_split(base64_encode(file_get_contents($exceptionFile))) . $eol .
-				"--" . $separator . "--";
+				chunk_split(base64_encode(file_get_contents($exceptionFile)));
 		}
+
+		if ($exceptionMdFile && $this->includeExceptionFile) {
+			$bodyParts[] =
+				// Attachment
+				"Content-Type: text/markdown; charset=\"UTF-8\"; name=\"" . basename($exceptionMdFile) . "\"" . $eol .
+				"Content-Transfer-Encoding: base64" . $eol .
+				"Content-Disposition: attachment" . $eol . $eol .
+				chunk_split(base64_encode(file_get_contents($exceptionMdFile)));
+		}
+
+		$body = "--" . $separator . $eol
+			. implode($eol . "--" . $separator . $eol, $bodyParts)
+			. $eol . "--" . $separator . "--";
 
 		$parts = str_replace(
 			["\r\n", "\n"],
