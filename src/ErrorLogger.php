@@ -109,12 +109,20 @@ final class ErrorLogger extends Logger
 				$_SERVER[$key] = $key === 'QUERY_STRING' ? $this->scrubQuery($_SERVER[$key]) : $this->scrubUrl($_SERVER[$key]);
 			}
 		}
+		$restoreTraces = null;
 		try {
-			if ($message instanceof \Throwable && $this->directory && is_dir($this->directory)) {
-				$this->writeMarkdown($message, $this->getExceptionFile($message, $level), false);
+			if ($message instanceof \Throwable) {
+				// kept for the whole logging: parent::log() renders the HTML report and the e-mail from the same traces
+				$restoreTraces = $this->scrubTraces($message);
+				if ($this->directory && is_dir($this->directory)) {
+					$this->writeMarkdown($message, $this->getExceptionFile($message, $level), false);
+				}
 			}
 			return parent::log($message, $level);
 		} finally {
+			if ($restoreTraces) {
+				$restoreTraces();
+			}
 			$_SERVER = array_replace($_SERVER, $server);
 		}
 	}
@@ -164,21 +172,38 @@ final class ErrorLogger extends Logger
 		return $mdFile;
 	}
 
-	private function renderScrubbedMarkdown(\Throwable $exception): string
+	private function getReportBlueScreen(): BlueScreen
 	{
-		$blueScreen = $this->reportBlueScreen ?? Debugger::getBlueScreen();
+		return $this->reportBlueScreen ?? Debugger::getBlueScreen();
+	}
+
+	private function createSensitivityCheck(): callable
+	{
+		$blueScreen = $this->getReportBlueScreen();
 		$scrubber = $blueScreen->scrubber;
 		$keysToHide = array_map('strtolower', $blueScreen->keysToHide ?? []);
-		$isSensitive = function ($key, $value = null) use ($scrubber, $keysToHide): bool {
+		return function ($key, $value = null) use ($scrubber, $keysToHide): bool {
 			$key = (string) $key;
 			return (bool) preg_match($this->sensitiveKeys, $key)
 				|| in_array(strtolower($key), $keysToHide, true)
 				|| ($scrubber !== null && $scrubber($key, $value, null));
 		};
+	}
 
+	/**
+	 * Both reports dump call arguments, the HTML one names them only when reflection finds the parameter,
+	 * so an unnamed or variadic argument passes the name-keyed scrubber of the BlueScreen untouched.
+	 * Replaces the trace of every exception of the chain with a scrubbed copy; the returned callback
+	 * puts the original traces back (the application may still use them after logging).
+	 */
+	private function scrubTraces(\Throwable $exception): \Closure
+	{
+		$isSensitive = $this->createSensitivityCheck();
 		$traces = [];
-		$blueScreen->scrubber = function ($key, $value, $class = null) use ($isSensitive): bool {
-			return $isSensitive($key, $value);
+		$restore = function () use (&$traces): void {
+			foreach ($traces as [$property, $ex, $trace]) {
+				$property->setValue($ex, $trace);
+			}
 		};
 		try {
 			foreach (Helpers::getExceptionChain($exception) as $ex) {
@@ -192,6 +217,25 @@ final class ErrorLogger extends Logger
 					return $this->scrubFrame($frame, $isSensitive);
 				}, $trace));
 			}
+		} catch (\Throwable $e) {
+			$restore();
+			throw $e;
+		}
+		return $restore;
+	}
+
+	private function renderScrubbedMarkdown(\Throwable $exception): string
+	{
+		$blueScreen = $this->getReportBlueScreen();
+		$scrubber = $blueScreen->scrubber;
+		$isSensitive = $this->createSensitivityCheck();
+
+		$restoreTraces = null;
+		$blueScreen->scrubber = function ($key, $value, $class = null) use ($isSensitive): bool {
+			return $isSensitive($key, $value);
+		};
+		try {
+			$restoreTraces = $this->scrubTraces($exception);
 
 			$location = method_exists(Helpers::class, 'findCallerLocation')
 				? Helpers::findCallerLocation(array_merge(Debugger::$transparentPaths ?? [], [__DIR__]))
@@ -201,8 +245,8 @@ final class ErrorLogger extends Logger
 				: $blueScreen->renderAgent($exception);
 		} finally {
 			$blueScreen->scrubber = $scrubber;
-			foreach ($traces as [$property, $ex, $trace]) {
-				$property->setValue($ex, $trace);
+			if ($restoreTraces) {
+				$restoreTraces();
 			}
 		}
 

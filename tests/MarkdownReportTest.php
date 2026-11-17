@@ -62,9 +62,14 @@ final class MarkdownReportTest extends TestCase
 		foreach ([$attached, (string) file_get_contents($files[0])] as $markdown) {
 			$this->assertStringNotContainsString($secret(''), $markdown);
 		}
+		$files = glob($this->dir . '/exception--*.html') ?: [];
+		$this->assertCount(1, $files);
+		$html = (string) file_get_contents($files[0]);
+		$this->assertStringContainsString('visible-user', $html);
 		// the URL, which Tracy takes straight from $_SERVER (the dump of $_GET is up to the scrubber of the project)
-		foreach (glob($this->dir . '/exception--*.html') ?: [] as $file) {
-			$this->assertStringNotContainsString('token=' . $secret('query'), (string) file_get_contents($file));
+		$this->assertStringNotContainsString('token=' . $secret('query'), $html);
+		foreach (['password', 'scope'] as $name) {
+			$this->assertFalse(strpos($html, $secret($name)) !== false, "HTML report contains $name");
 		}
 		foreach (glob($this->dir . '/*.log') ?: [] as $file) {
 			$this->assertStringNotContainsString($secret('query'), (string) file_get_contents($file), basename($file));
