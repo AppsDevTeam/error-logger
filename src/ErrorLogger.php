@@ -100,10 +100,23 @@ final class ErrorLogger extends Logger
 	public function log($message, $level = self::INFO)
 	{
 		$this->rotate();
-		if ($message instanceof \Throwable && $this->directory && is_dir($this->directory)) {
-			$this->writeMarkdown($message, $this->getExceptionFile($message, $level), false);
+		// Tracy takes the URL straight from $_SERVER - a secret in the query string (?token=) would end up in
+		// the log line, the title and the dump of the HTML report and in the e-mail; the scrubber sees keys only
+		$server = [];
+		foreach (['REQUEST_URI', 'QUERY_STRING'] as $key) {
+			if (isset($_SERVER[$key]) && is_string($_SERVER[$key])) {
+				$server[$key] = $_SERVER[$key];
+				$_SERVER[$key] = $key === 'QUERY_STRING' ? $this->scrubQuery($_SERVER[$key]) : $this->scrubUrl($_SERVER[$key]);
+			}
 		}
-		return parent::log($message, $level);
+		try {
+			if ($message instanceof \Throwable && $this->directory && is_dir($this->directory)) {
+				$this->writeMarkdown($message, $this->getExceptionFile($message, $level), false);
+			}
+			return parent::log($message, $level);
+		} finally {
+			$_SERVER = array_replace($_SERVER, $server);
+		}
 	}
 
 	/**
@@ -232,14 +245,19 @@ final class ErrorLogger extends Logger
 			return $url;
 		}
 
-		$query = [];
-		foreach (explode('&', $parts[1]) as $pair) {
+		return $parts[0] . '?' . $this->scrubQuery($parts[1]);
+	}
+
+	private function scrubQuery(string $query): string
+	{
+		$pairs = [];
+		foreach (explode('&', $query) as $pair) {
 			$kv = explode('=', $pair, 2);
-			$query[] = isset($kv[1]) && preg_match($this->sensitiveKeys, urldecode($kv[0]))
+			$pairs[] = isset($kv[1]) && preg_match($this->sensitiveKeys, urldecode($kv[0]))
 				? $kv[0] . '=*****'
 				: $pair;
 		}
-		return $parts[0] . '?' . implode('&', $query);
+		return implode('&', $pairs);
 	}
 
 	private function rotate(): void
