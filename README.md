@@ -26,3 +26,16 @@ if (!\Tracy\Debugger::$productionMode) {
 	$logger->mailer = null;
 }
 ````
+
+Log rotation
+------------
+
+Tracy never rotates its logs. Before each write ErrorLogger renames every `*.log` of the log directory bigger than
+`$maxLogSize` (10 MB) to `<name>.log-<YYYY-MM-DD-HHMMSS>`, keeps `$maxRotatedLogs` (10) of them per log and deletes
+exception snapshots (`exception--*`) older than `$maxExceptionFileAge` (90 days). Logs written by PHP itself into the
+same directory are rotated too. No cron needed, it runs under the user of the application.
+
+````php
+$logger->maxLogSize = 50 * 1024 * 1024;
+````
+

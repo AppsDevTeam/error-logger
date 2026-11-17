@@ -37,6 +37,15 @@ final class ErrorLogger extends Logger
 	 * Number of emails in current request
 	 * @var int
 	 */
+	/** Log over this size (bytes) is renamed to <name>.log-<date> before the next write */
+	public int $maxLogSize = 10 * 1024 * 1024;
+
+	/** Rotated files kept per log */
+	public int $maxRotatedLogs = 10;
+
+	/** Exception snapshots (exception--*.html/.md) older than this (seconds) are deleted */
+	public int $maxExceptionFileAge = 90 * 86400;
+
 	private int $sentEmailsPerRequest = 0;
 
 	public static function install(
@@ -61,6 +70,46 @@ final class ErrorLogger extends Logger
 		Debugger::setLogger($logger);
 
 		return $logger;
+	}
+
+	/**
+	 * Tracy itself never rotates its logs: a broken release or a flood of requests would fill the disk.
+	 * Rotates every *.log of the directory, also the ones PHP writes itself (error_log), right before
+	 * a write - no cron, any environment, under the user of the application.
+	 */
+	public function log($message, $level = self::INFO)
+	{
+		$this->rotate();
+		return parent::log($message, $level);
+	}
+
+	private function rotate(): void
+	{
+		foreach (glob($this->directory . '/*.log') ?: [] as $file) {
+			// own bookkeeping, small and cleared by itself
+			if (in_array(basename($file), ['error-snooze.log', 'max-emails-per-day.log'], true)) {
+				continue;
+			}
+			// rename keeps nothing open: PHP and Tracy open the log on every write; a second worker
+			// rotating at the same moment only fails to rename the already moved file
+			if (@filesize($file) > $this->maxLogSize && @rename($file, $file . '-' . date('Y-m-d-His'))) {
+				$rotated = glob($file . '-*') ?: [];
+				sort($rotated);
+				foreach (array_slice($rotated, 0, max(0, count($rotated) - $this->maxRotatedLogs)) as $old) {
+					@unlink($old);
+				}
+			}
+		}
+
+		// Tracy writes one snapshot per distinct exception; a cheap check on a small share of writes is enough
+		if (mt_rand(1, 100) === 1) {
+			$limit = time() - $this->maxExceptionFileAge;
+			foreach (glob($this->directory . '/exception--*') ?: [] as $file) {
+				if (@filemtime($file) < $limit) {
+					@unlink($file);
+				}
+			}
+		}
 	}
 
 	protected function sendEmail($message): void
