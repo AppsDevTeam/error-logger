@@ -4,6 +4,7 @@ namespace ADT;
 
 use DateTime;
 use RuntimeException;
+use Tracy\BlueScreen;
 use Tracy\Debugger;
 use Tracy\Helpers;
 use Tracy\Logger;
@@ -46,7 +47,26 @@ final class ErrorLogger extends Logger
 	/** Exception snapshots (exception--*.html/.md) older than this (seconds) are deleted */
 	public int $maxExceptionFileAge = 90 * 86400;
 
+	/**
+	 * Names of request headers, query parameters, call arguments and dumped keys whose values are left out
+	 * of the markdown exception report (on top of the scrubber and keysToHide of the BlueScreen)
+	 */
+	public string $sensitiveKeys = '~pass|pwd|secret|token|(^|[_-])(api)?key($|[_-])|apikey|salt|dsn'
+		. '|(^|[_-])auth|authorization|cookie|sessid|session|bypass|app-debug~i';
+
 	private int $sentEmailsPerRequest = 0;
+
+	/** @var array<string, true> markdown reports written by this logger in this request */
+	private array $scrubbedMarkdown = [];
+
+	/** The one of Tracy\Logger is private */
+	private ?BlueScreen $reportBlueScreen;
+
+	public function __construct($directory, $email = null, ?BlueScreen $blueScreen = null)
+	{
+		parent::__construct($directory, $email, $blueScreen);
+		$this->reportBlueScreen = $blueScreen;
+	}
 
 	public static function install(
 		$email,
@@ -80,7 +100,146 @@ final class ErrorLogger extends Logger
 	public function log($message, $level = self::INFO)
 	{
 		$this->rotate();
+		if ($message instanceof \Throwable && $this->directory && is_dir($this->directory)) {
+			$this->writeMarkdown($message, $this->getExceptionFile($message, $level), false);
+		}
 		return parent::log($message, $level);
+	}
+
+	/**
+	 * The markdown report of Tracy (exception--*.md) prints the request headers raw and dumps call arguments
+	 * without passing their names to the dumper, so the name-keyed scrubber of the BlueScreen never sees them
+	 * (session cookie, Authorization, $password ...), unlike in the HTML report. Tracy writes the report only
+	 * when the file does not exist yet, so writing a scrubbed one first keeps the raw one off the disk too.
+	 */
+	private function writeMarkdown(\Throwable $exception, string $exceptionFile, bool $overwrite): ?string
+	{
+		if (
+			substr($exceptionFile, -5) !== '.html'
+			|| !method_exists(BlueScreen::class, 'renderAgent')
+		) {
+			return null;
+		}
+		$mdFile = substr($exceptionFile, 0, -5) . '.md';
+		if (isset($this->scrubbedMarkdown[$mdFile])) {
+			return $mdFile;
+		}
+		if (!$overwrite && (is_file($exceptionFile) || is_file($mdFile))) {
+			return null;
+		}
+
+		try {
+			$markdown = $this->renderScrubbedMarkdown($exception);
+		} catch (\Throwable $e) {
+			// a report that cannot be scrubbed must not be left to Tracy
+			$markdown = 'The markdown report could not be scrubbed (' . get_class($e) . '), see the HTML one.' . "\n";
+		}
+
+		if ($overwrite) {
+			$written = @file_put_contents($mdFile, $markdown, LOCK_EX) !== false;
+		} elseif ($handle = @fopen($mdFile, 'x')) { // @ another request may have written it meanwhile
+			$written = fwrite($handle, $markdown) !== false;
+			fclose($handle);
+		} else {
+			$written = false;
+		}
+		if (!$written) {
+			return null;
+		}
+
+		$this->scrubbedMarkdown[$mdFile] = true;
+		return $mdFile;
+	}
+
+	private function renderScrubbedMarkdown(\Throwable $exception): string
+	{
+		$blueScreen = $this->reportBlueScreen ?? Debugger::getBlueScreen();
+		$scrubber = $blueScreen->scrubber;
+		$keysToHide = array_map('strtolower', $blueScreen->keysToHide ?? []);
+		$isSensitive = function ($key, $value = null) use ($scrubber, $keysToHide): bool {
+			$key = (string) $key;
+			return (bool) preg_match($this->sensitiveKeys, $key)
+				|| in_array(strtolower($key), $keysToHide, true)
+				|| ($scrubber !== null && $scrubber($key, $value, null));
+		};
+
+		$traces = [];
+		$blueScreen->scrubber = function ($key, $value, $class = null) use ($isSensitive): bool {
+			return $isSensitive($key, $value);
+		};
+		try {
+			foreach (Helpers::getExceptionChain($exception) as $ex) {
+				$property = new \ReflectionProperty($ex instanceof \Exception ? \Exception::class : \Error::class, 'trace');
+				if (PHP_VERSION_ID < 80100) {
+					$property->setAccessible(true);
+				}
+				$trace = $property->getValue($ex);
+				$traces[] = [$property, $ex, $trace];
+				$property->setValue($ex, array_map(function (array $frame) use ($isSensitive): array {
+					return $this->scrubFrame($frame, $isSensitive);
+				}, $trace));
+			}
+
+			$location = method_exists(Helpers::class, 'findCallerLocation')
+				? Helpers::findCallerLocation(array_merge(Debugger::$transparentPaths ?? [], [__DIR__]))
+				: null;
+			$markdown = (new \ReflectionMethod($blueScreen, 'renderAgent'))->getNumberOfParameters() > 1
+				? $blueScreen->renderAgent($exception, $location)
+				: $blueScreen->renderAgent($exception);
+		} finally {
+			$blueScreen->scrubber = $scrubber;
+			foreach ($traces as [$property, $ex, $trace]) {
+				$property->setValue($ex, $trace);
+			}
+		}
+
+		// Tracy escapes a leading "- " in every dumped value, so a line starting with it is a request header
+		$markdown = preg_replace_callback('~^- (.+?): .*$~m', function (array $m) use ($isSensitive): string {
+			return $isSensitive(str_replace('\\', '', $m[1])) ? '- ' . $m[1] . ': \\*\\*\\*\\*\\*' : $m[0];
+		}, $markdown);
+
+		$source = Helpers::getSource();
+		return str_replace(Helpers::escapeMd($source), Helpers::escapeMd($this->scrubUrl($source)), $markdown);
+	}
+
+	private function scrubFrame(array $frame, callable $isSensitive): array
+	{
+		if (empty($frame['args'])) {
+			return $frame;
+		}
+
+		try {
+			$params = isset($frame['class'])
+				? (new \ReflectionMethod($frame['class'], $frame['function']))->getParameters()
+				: (new \ReflectionFunction($frame['function']))->getParameters();
+		} catch (\Throwable $e) {
+			$params = [];
+		}
+
+		foreach ($frame['args'] as $k => $v) {
+			// without a name (variadic, closure) nothing tells whether the value is a secret
+			if (!isset($params[$k]) || $params[$k]->isVariadic() || $isSensitive($params[$k]->getName(), $v)) {
+				$frame['args'][$k] = '*****';
+			}
+		}
+		return $frame;
+	}
+
+	private function scrubUrl(string $url): string
+	{
+		$parts = explode('?', $url, 2);
+		if (!isset($parts[1])) {
+			return $url;
+		}
+
+		$query = [];
+		foreach (explode('&', $parts[1]) as $pair) {
+			$kv = explode('=', $pair, 2);
+			$query[] = isset($kv[1]) && preg_match($this->sensitiveKeys, urldecode($kv[0]))
+				? $kv[0] . '=*****'
+				: $pair;
+		}
+		return $parts[0] . '?' . implode('&', $query);
 	}
 
 	private function rotate(): void
@@ -130,12 +289,6 @@ final class ErrorLogger extends Logger
 		$exceptionFile = $message instanceof \Throwable
 			? $this->getExceptionFile($message)
 			: null;
-		$exceptionMdFile = $exceptionFile && substr($exceptionFile, -5) === '.html'
-			? substr($exceptionFile, 0, -5) . '.md'
-			: null;
-		if ($exceptionMdFile !== null && !is_file($exceptionMdFile)) {
-			$exceptionMdFile = null;
-		}
 		$line = self::formatLogLine($message, $exceptionFile);
 
 		$messageHash = md5($this->sanitizeString($message));
@@ -180,6 +333,9 @@ final class ErrorLogger extends Logger
 
 		// SEND EMAIL
 
+		// a report left by an older version or by Tracy itself is scrubbed before it leaves the server
+		$exceptionMdFile = $exceptionFile ? $this->writeMarkdown($message, $exceptionFile, true) : null;
+
 		call_user_func($this->mailer, $message, implode(', ', (array)$this->email), $exceptionFile, $exceptionMdFile);
 
 		$this->sentEmailsPerRequest++;
@@ -199,7 +355,7 @@ final class ErrorLogger extends Logger
 			// Text email
 			"Content-Type: text/plain; charset=\"UTF-8\"" . $eol .
 			"Content-Transfer-Encoding: 8bit" . $eol . $eol .
-			$this->formatMessage($message) . "\n\nsource: " . Helpers::getSource(),
+			$this->formatMessage($message) . "\n\nsource: " . $this->scrubUrl(Helpers::getSource()),
 		];
 
 		if ($exceptionFile && $this->includeExceptionFile) {

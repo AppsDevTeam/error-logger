@@ -39,3 +39,23 @@ same directory are rotated too. No cron needed, it runs under the user of the ap
 $logger->maxLogSize = 50 * 1024 * 1024;
 ````
 
+
+Markdown exception report
+-------------------------
+
+Recent Tracy writes next to every `exception--*.html` a Markdown twin `exception--*.md`, which ErrorLogger attaches
+to the e-mail. Tracy prints the request headers in it raw and dumps call arguments without passing their names, so the
+scrubber of the BlueScreen (keyed by name) does not apply there. ErrorLogger therefore writes the `.md` itself before Tracy does
+(and rewrites an older one before attaching it); with a Tracy without it nothing changes:
+
+- request headers, query parameters, call arguments and dumped keys whose name matches `$sensitiveKeys`, the BlueScreen
+  `scrubber` or `keysToHide` are replaced by `*****`,
+- call arguments without a name (variadic, closures) are always replaced, frames, files and lines stay.
+
+The HTML report is left to the BlueScreen scrubber. The exception message itself is never scrubbed.
+
+````php
+$logger->sensitiveKeys = '~pass|secret|token|iban~i';
+````
+
+Tests: `composer install && vendor/bin/phpunit` (runs a request through the PHP built-in web server).
